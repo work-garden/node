@@ -134,7 +134,7 @@ template <template <typename, typename> typename F, typename T, typename Head,
           typename... Tail>
 struct fold_right_impl<F, T, list<Head, Tail...>> {
   using type =
-      F<Head, typename fold_right_impl<F, T, list<Tail...>>::type>::type;
+      typename F<Head, typename fold_right_impl<F, T, list<Tail...>>::type>::type;
 };
 template <template <typename, typename> typename F, typename T>
 struct fold_right_impl<F, T, list<>> {
@@ -147,7 +147,7 @@ template <template <TYPENAME1, typename> typename F, typename T, TYPENAME1 Head,
           TYPENAME1... Tail>
 struct fold_right1_impl<F, T, list1<Head, Tail...>> {
   using type =
-      F<Head, typename fold_right1_impl<F, T, list1<Tail...>>::type>::type;
+      typename F<Head, typename fold_right1_impl<F, T, list1<Tail...>>::type>::type;
 };
 template <template <TYPENAME1, typename> typename F, typename T>
 struct fold_right1_impl<F, T, list1<>> {
@@ -217,11 +217,11 @@ constexpr bool all_equal_v = all_equal<List, Cmp>::value;
 template <typename List, size_t I, typename T>
 struct insert_at : public detail::insert_at_impl<I, T, list<>, List> {};
 template <typename List, size_t I, typename T>
-using insert_at_t = insert_at<List, I, T>::type;
+using insert_at_t = typename insert_at<List, I, T>::type;
 template <typename List1, size_t I, TYPENAME1 T>
 struct insert_at1 : public detail::insert_at1_impl<I, T, list1<>, List1> {};
 template <typename List1, size_t I, TYPENAME1 T>
-using insert_at1_t = insert_at1<List1, I, T>::type;
+using insert_at1_t = typename insert_at1<List1, I, T>::type;
 
 // fold_right recursively applies binary function {F} to elements of the {List}
 // and the previous result, starting from the right. The initial value is {T}.
@@ -232,11 +232,11 @@ using insert_at1_t = insert_at1<List1, I, T>::type;
 template <template <typename, typename> typename F, typename List, typename T>
 struct fold_right : public detail::fold_right_impl<F, T, List> {};
 template <template <typename, typename> typename F, typename List, typename T>
-using fold_right_t = fold_right<F, List, T>::type;
+using fold_right_t = typename fold_right<F, List, T>::type;
 template <template <TYPENAME1, typename> typename F, typename List1, typename T>
 struct fold_right1 : public detail::fold_right1_impl<F, T, List1> {};
 template <template <TYPENAME1, typename> typename F, typename List1, typename T>
-using fold_right1_t = fold_right1<F, List1, T>::type;
+using fold_right1_t = typename fold_right1<F, List1, T>::type;
 
 }  // namespace v8::base::tmp
 
