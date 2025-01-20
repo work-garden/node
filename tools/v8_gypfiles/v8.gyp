@@ -1004,6 +1004,7 @@
         'v8_pch',
         'v8_abseil',
         'fp16',
+        'highway',
       ],
       'includes': ['inspector.gypi'],
       'direct_dependent_settings': {
@@ -2527,5 +2528,46 @@
         ],
       },
     },  # fp16
+    {
+      'target_name': 'highway',
+      'type': 'static_library',
+      'toolsets': ['host', 'target'],
+      'variables': {
+        'HIGHWAY_ROOT': '../../deps/v8/third_party/highway',
+      },
+      'direct_dependent_settings': {
+        'include_dirs': [
+          '<(HIGHWAY_ROOT)/src',
+        ],
+        'conditions': [
+          ['v8_target_arch=="ia32"', {
+            'defines': ['HWY_BROKEN_TARGETS=(HWY_AVX2|HWY_AVX3)',],
+          }],
+          ['v8_target_arch=="arm64"', {
+            'defines': ['HWY_BROKEN_TARGETS=HWY_ALL_SVE',],
+          }],
+          ['v8_target_arch=="ppc64" or v8_target_arch=="s390x"', {
+            'defines': ['TOOLCHAIN_MISS_ASM_HWCAP_H',],
+          }],
+        ],
+      },
+      'include_dirs': [
+        '<(HIGHWAY_ROOT)/src',
+      ],
+      'conditions': [
+        ['v8_target_arch=="ia32"', {
+          'defines': ['HWY_BROKEN_TARGETS=(HWY_AVX2|HWY_AVX3)',],
+        }],
+        ['v8_target_arch=="arm64"', {
+          'defines': ['HWY_BROKEN_TARGETS=HWY_ALL_SVE',],
+        }],
+        ['v8_target_arch=="ppc64" or v8_target_arch=="s390x"', {
+          'defines': ['TOOLCHAIN_MISS_ASM_HWCAP_H',],
+        }],
+      ],
+      'sources': [
+        '<!@pymod_do_main(GN-scraper "<(HIGHWAY_ROOT)/BUILD.gn"  "source_set.\\"libhwy.*?sources = ")',
+      ],
+    },  # highway
   ],
 }
