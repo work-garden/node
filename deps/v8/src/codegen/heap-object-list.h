@@ -37,29 +37,6 @@
     StringWrapperToPrimitiveProtector)                                         \
   V(TypedArraySpeciesProtector, typed_array_species_protector,                 \
     TypedArraySpeciesProtector)                                                \
-  V(AsyncFunctionAwaitRejectSharedFun, async_function_await_reject_shared_fun, \
-    AsyncFunctionAwaitRejectSharedFun)                                         \
-  V(AsyncFunctionAwaitResolveSharedFun,                                        \
-    async_function_await_resolve_shared_fun,                                   \
-    AsyncFunctionAwaitResolveSharedFun)                                        \
-  V(AsyncGeneratorAwaitRejectSharedFun,                                        \
-    async_generator_await_reject_shared_fun,                                   \
-    AsyncGeneratorAwaitRejectSharedFun)                                        \
-  V(AsyncGeneratorAwaitResolveSharedFun,                                       \
-    async_generator_await_resolve_shared_fun,                                  \
-    AsyncGeneratorAwaitResolveSharedFun)                                       \
-  V(AsyncGeneratorReturnClosedRejectSharedFun,                                 \
-    async_generator_return_closed_reject_shared_fun,                           \
-    AsyncGeneratorReturnClosedRejectSharedFun)                                 \
-  V(AsyncGeneratorReturnClosedResolveSharedFun,                                \
-    async_generator_return_closed_resolve_shared_fun,                          \
-    AsyncGeneratorReturnClosedResolveSharedFun)                                \
-  V(AsyncGeneratorReturnResolveSharedFun,                                      \
-    async_generator_return_resolve_shared_fun,                                 \
-    AsyncGeneratorReturnResolveSharedFun)                                      \
-  V(AsyncGeneratorYieldWithAwaitResolveSharedFun,                              \
-    async_generator_yield_with_await_resolve_shared_fun,                       \
-    AsyncGeneratorYieldWithAwaitResolveSharedFun)                              \
   BUILTINS_WITH_SFI_OBJECT_LIST(V)
 
 #define UNIQUE_INSTANCE_TYPE_IMMUTABLE_IMMOVABLE_MAP_ADAPTER( \
@@ -180,8 +157,8 @@
   V(UndefinedValue, undefined_value, Undefined)                              \
   V(uninitialized_symbol, uninitialized_symbol, UninitializedSymbol)         \
   V(valueOf_string, valueOf_string, ValueOfString)                           \
-  V(wasm_wrapped_object_symbol, wasm_wrapped_object_symbol,                  \
-    WasmWrappedObjectSymbol)                                                 \
+  V(wasm_cross_instance_call_symbol, wasm_cross_instance_call_symbol,        \
+    WasmCrossInstanceCallSymbol)                                             \
   V(zero_string, zero_string, ZeroString)                                    \
   UNIQUE_INSTANCE_TYPE_MAP_LIST_GENERATOR(                                   \
       UNIQUE_INSTANCE_TYPE_IMMUTABLE_IMMOVABLE_MAP_ADAPTER, V)

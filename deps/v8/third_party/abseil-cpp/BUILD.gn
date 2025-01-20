@@ -57,10 +57,12 @@ component("absl") {
 
 group("absl_component_deps") {
   public_deps = [
+    "//third_party/abseil-cpp/absl/algorithm",
     "//third_party/abseil-cpp/absl/algorithm:container",
     "//third_party/abseil-cpp/absl/base",
     "//third_party/abseil-cpp/absl/base:config",
     "//third_party/abseil-cpp/absl/base:core_headers",
+    "//third_party/abseil-cpp/absl/base:log_severity",
     "//third_party/abseil-cpp/absl/base:no_destructor",
     "//third_party/abseil-cpp/absl/base:nullability",
     "//third_party/abseil-cpp/absl/base:prefetch",
@@ -110,6 +112,16 @@ group("absl_component_deps") {
     "//third_party/abseil-cpp/absl/utility",
   ]
 
+  # Dependencies that preferably shouldn't be public in chromium.
+  public_deps += [
+    # public in abseil, but deprecated in chromium, yet used.
+    "//third_party/abseil-cpp/absl/base:dynamic_annotations",
+
+    # base/logging.cc uses this non-public absl dependency while there no better
+    # alternative to inject abort hook. See notes in `base/logging.cc`.
+    "//third_party/abseil-cpp/absl/base:raw_logging_internal",
+  ]
+
   if (is_component_build) {
     public_deps += [ ":absl_full_deps" ]
   }
@@ -147,6 +159,7 @@ source_set("absl_full") {
       # part of Chrome.
       "//components/optimization_guide/internal/*",
       "//third_party/fuzztest:*",
+      "//third_party/webrtc/*",
 
       # GoogleTest doesn't actually need absl_full, but this makes gn check
       # happier.
@@ -221,18 +234,6 @@ config("absl_default_cflags_cc") {
   }
 }
 
-config("absl_public_cflags_cc") {
-  # Non-chromium users of abseil have more lax style guides and use additional features in
-  # abseil, Remove a few extra warnings for that use case.
-  if (!build_with_chromium && is_clang) {
-    cflags = [
-      # Allow the use of enable_if()
-      "-Wno-gcc-compat",
-      "-Wno-unreachable-code-break",
-    ]
-  }
-}
-
 config("absl_test_cflags_cc") {
   cflags_cc = []
   if (is_clang || !is_win) {
@@ -277,6 +278,7 @@ if (absl_build_tests) {
         "absl/algorithm:container_test",
         "absl/base:config_test",
         "absl/base:no_destructor_test",
+        "absl/base:nullability_default_nonnull_test",
         "absl/base:nullability_test",
         "absl/base:poison_test",
         "absl/base:prefetch_test",
@@ -330,11 +332,13 @@ if (absl_build_tests) {
         "absl/log:vlog_is_on_test",
         "absl/log/internal:fnmatch_test",
         "absl/log/internal:stderr_log_sink_test",
+        "absl/log/internal:structured_proto_test",
         "absl/memory:memory_test",
         "absl/meta:type_traits_test",
         "absl/numeric:int128_test",
         "absl/profiling:exponential_biased_test",
         "absl/profiling:periodic_sampler_test",
+        "absl/random/internal:nonsecure_base_test",
         "absl/random:distributions_test",
         "absl/random:mock_distributions_test",
         "absl/status:status_matchers_test",
@@ -359,6 +363,7 @@ if (absl_build_tests) {
         "absl/strings:has_absl_stringify_test",
         "absl/strings:has_ostream_operator_test",
         "absl/strings:match_test",
+        "absl/strings:str_cat_test",
         "absl/strings:str_format_arg_test",
         "absl/strings:str_format_bind_test",
         "absl/strings:str_format_checker_test",

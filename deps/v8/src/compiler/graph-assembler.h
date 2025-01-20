@@ -507,6 +507,8 @@ class V8_EXPORT_PRIVATE GraphAssembler {
   void GotoIfNot(Node* condition,
                  detail::GraphAssemblerLabelForVars<Vars...>* label, Vars...);
 
+  void RuntimeAbort(AbortReason reason);
+
   bool HasActiveBlock() const {
     // This is false if the current block has been terminated (e.g. by a Goto or
     // Unreachable). In that case, a new label must be bound before we can
@@ -1028,6 +1030,10 @@ class V8_EXPORT_PRIVATE JSGraphAssembler : public GraphAssembler {
   TNode<Boolean> ObjectIsCallable(TNode<Object> value);
   TNode<Boolean> ObjectIsSmi(TNode<Object> value);
   TNode<Boolean> ObjectIsUndetectable(TNode<Object> value);
+  Node* BooleanNot(Node* cond);
+  Node* CheckSmi(Node* value, const FeedbackSource& feedback = {});
+  Node* CheckNumber(Node* value, const FeedbackSource& feedback = {});
+  Node* CheckNumberFitsInt32(Node* value, const FeedbackSource& feedback = {});
   Node* CheckIf(Node* cond, DeoptimizeReason reason,
                 const FeedbackSource& feedback = {});
   Node* Assert(Node* cond, const char* condition_string = "",
@@ -1397,6 +1403,15 @@ class V8_EXPORT_PRIVATE JSGraphAssembler : public GraphAssembler {
   template <typename T>
   IfBuilder1<T, Word32T> MachineSelectIf(TNode<Word32T> cond) {
     return {this, cond, false};
+  }
+  template <typename T>
+  TNode<T> MachineSelect(TNode<Word32T> cond, TNode<T> true_value,
+                         TNode<T> false_value,
+                         BranchHint hint = BranchHint::kNone) {
+    return TNode<T>::UncheckedCast(AddNode(
+        graph()->NewNode(common()->Select(T::kMachineRepresentation, hint,
+                                          BranchSemantics::kMachine),
+                         cond, true_value, false_value)));
   }
 
  protected:

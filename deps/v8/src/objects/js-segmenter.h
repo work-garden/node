@@ -35,8 +35,8 @@ class JSSegmenter : public TorqueGeneratedJSSegmenter<JSSegmenter, JSObject> {
   // Creates segmenter object with properties derived from input locales and
   // options.
   V8_WARN_UNUSED_RESULT static MaybeHandle<JSSegmenter> New(
-      Isolate* isolate, DirectHandle<Map> map, Handle<Object> locales,
-      Handle<Object> options);
+      Isolate* isolate, DirectHandle<Map> map, DirectHandle<Object> locales,
+      DirectHandle<Object> options);
 
   V8_WARN_UNUSED_RESULT static Handle<JSObject> ResolvedOptions(
       Isolate* isolate, DirectHandle<JSSegmenter> segmenter_holder);
@@ -65,9 +65,9 @@ class JSSegmenter : public TorqueGeneratedJSSegmenter<JSSegmenter, JSObject> {
   // Bit positions in |flags|.
   DEFINE_TORQUE_GENERATED_JS_SEGMENTER_FLAGS()
 
-  static_assert(Granularity::GRAPHEME <= GranularityBits::kMax);
-  static_assert(Granularity::WORD <= GranularityBits::kMax);
-  static_assert(Granularity::SENTENCE <= GranularityBits::kMax);
+  static_assert(GranularityBits::is_valid(Granularity::GRAPHEME));
+  static_assert(GranularityBits::is_valid(Granularity::WORD));
+  static_assert(GranularityBits::is_valid(Granularity::SENTENCE));
 
   DECL_PRINTER(JSSegmenter)
 

@@ -290,6 +290,12 @@ class V8_EXPORT_PRIVATE MacroAssembler : public MacroAssemblerBase {
   void JumpJSFunction(Register function_object,
                       JumpMode jump_mode = JumpMode::kJump);
 
+#ifdef V8_ENABLE_WEBASSEMBLY
+  void ResolveWasmCodePointer(Register target);
+  void CallWasmCodePointer(Register target,
+                           CallJumpMode call_jump_mode = CallJumpMode::kCall);
+#endif
+
   // Generates an instruction sequence s.t. the return address points to the
   // instruction following the call.
   // The return address on the stack is used by frame iteration.
@@ -939,6 +945,12 @@ class V8_EXPORT_PRIVATE MacroAssembler : public MacroAssemblerBase {
   // It assumes that the arguments are located below the stack pointer.
   void LoadReceiver(Register dest) { Ld(dest, MemOperand(sp, 0)); }
   void StoreReceiver(Register rec) { Sd(rec, MemOperand(sp, 0)); }
+
+#ifdef V8_ENABLE_LEAPTIERING
+  // Load the entrypoint pointer of a JSDispatchTable entry.
+  void LoadCodeEntrypointFromJSDispatchTable(Register destination,
+                                             MemOperand field_operand);
+#endif  // V8_ENABLE_LEAPTIERING
 
   bool IsNear(Label* L, Condition cond, int rs_reg);
 

@@ -55,6 +55,8 @@ class V8_BASE_EXPORT VirtualAddressSpacePageAllocator
 
   bool DecommitPages(void* address, size_t size) override;
 
+  bool SealPages(void* address, size_t size) override;
+
  private:
   // Client of this class must keep the VirtualAddressSpace alive during the
   // lifetime of this instance.
@@ -66,7 +68,7 @@ class V8_BASE_EXPORT VirtualAddressSpacePageAllocator
   std::unordered_map<Address, size_t> resized_allocations_;
 
   // Mutex guarding the above map.
-  Mutex mutex_;
+  SpinningMutex mutex_;
 };
 
 }  // namespace base

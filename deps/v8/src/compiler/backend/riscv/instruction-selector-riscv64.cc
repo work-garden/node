@@ -232,7 +232,7 @@ void EmitLoad(InstructionSelectorT<Adapter>* selector,
   } else {
     InstructionOperand addr_reg = g.TempRegister();
     selector->Emit(kRiscvAdd64 | AddressingModeField::encode(kMode_None),
-                   addr_reg, g.UseRegister(index), g.UseRegister(base));
+                   addr_reg, g.UseRegister(base), g.UseRegister(index));
     // Emit desired load opcode, using temp addr_reg.
     selector->Emit(opcode | AddressingModeField::encode(kMode_MRI),
                    g.DefineAsRegister(output == nullptr ? node : output),
@@ -311,11 +311,12 @@ void EmitLoad(InstructionSelectorT<TurboshaftAdapter>* selector,
 }
 
 template <typename Adapter>
-void EmitS128Load(InstructionSelectorT<Adapter>* selector, Node* node,
-                  InstructionCode opcode, VSew sew, Vlmul lmul) {
+void EmitS128Load(InstructionSelectorT<Adapter>* selector,
+                  typename Adapter::node_t node, InstructionCode opcode,
+                  VSew sew, Vlmul lmul) {
   RiscvOperandGeneratorT<Adapter> g(selector);
-  Node* base = selector->input_at(node, 0);
-  Node* index = selector->input_at(node, 1);
+  typename Adapter::node_t base = selector->input_at(node, 0);
+  typename Adapter::node_t index = selector->input_at(node, 1);
   if (g.CanBeImmediate(index, opcode)) {
     selector->Emit(opcode | AddressingModeField::encode(kMode_MRI),
                    g.DefineAsRegister(node), g.UseRegister(base),
@@ -332,120 +333,217 @@ void EmitS128Load(InstructionSelectorT<Adapter>* selector, Node* node,
   }
 }
 
-template <typename Adapter>
-void InstructionSelectorT<Adapter>::VisitStoreLane(node_t node) {
-  if constexpr (Adapter::IsTurboshaft) {
-    UNIMPLEMENTED();
-  } else {
-    StoreLaneParameters params = StoreLaneParametersOf(node->op());
-    LoadStoreLaneParams f(params.rep, params.laneidx);
-    InstructionCode opcode = kRiscvS128StoreLane;
-    opcode |=
-        LaneSizeField::encode(ElementSizeInBytes(params.rep) * kBitsPerByte);
-    if (params.kind == MemoryAccessKind::kProtected) {
-      opcode |= AccessModeField::encode(kMemoryAccessProtectedMemOutOfBounds);
-    }
-    RiscvOperandGeneratorT<Adapter> g(this);
-    Node* base = this->input_at(node, 0);
-    Node* index = this->input_at(node, 1);
-    InstructionOperand addr_reg = g.TempRegister();
-    Emit(kRiscvAdd64, addr_reg, g.UseRegister(base), g.UseRegister(index));
-    InstructionOperand inputs[4] = {
-        g.UseRegister(node->InputAt(2)),
-        g.UseImmediate(f.laneidx),
-        addr_reg,
-        g.TempImmediate(0),
-    };
-    opcode |= AddressingModeField::encode(kMode_MRI);
-    Emit(opcode, 0, nullptr, 4, inputs);
+template <>
+void InstructionSelectorT<TurboshaftAdapter>::VisitStoreLane(node_t node) {
+  using namespace turboshaft;  // NOLINT(build/namespaces)
+  const Simd128LaneMemoryOp& store = Get(node).Cast<Simd128LaneMemoryOp>();
+  InstructionCode opcode = kRiscvS128StoreLane;
+  opcode |= LaneSizeField::encode(store.lane_size() * kBitsPerByte);
+  if (store.kind.with_trap_handler) {
+    opcode |= AccessModeField::encode(kMemoryAccessProtectedMemOutOfBounds);
+  }
+
+  RiscvOperandGeneratorT<TurboshaftAdapter> g(this);
+  node_t base = this->input_at(node, 0);
+  node_t index = this->input_at(node, 1);
+  InstructionOperand addr_reg = g.TempRegister();
+  Emit(kRiscvAdd64, addr_reg, g.UseRegister(base), g.UseRegister(index));
+  InstructionOperand inputs[4] = {
+      g.UseRegister(input_at(node, 2)),
+      g.UseImmediate(store.lane),
+      addr_reg,
+      g.TempImmediate(0),
+  };
+  opcode |= AddressingModeField::encode(kMode_MRI);
+  Emit(opcode, 0, nullptr, 4, inputs);
+}
+
+template <>
+void InstructionSelectorT<TurbofanAdapter>::VisitStoreLane(Node* node) {
+  StoreLaneParameters params = StoreLaneParametersOf(node->op());
+  LoadStoreLaneParams f(params.rep, params.laneidx);
+  InstructionCode opcode = kRiscvS128StoreLane;
+  opcode |=
+      LaneSizeField::encode(ElementSizeInBytes(params.rep) * kBitsPerByte);
+  if (params.kind == MemoryAccessKind::kProtectedByTrapHandler) {
+    opcode |= AccessModeField::encode(kMemoryAccessProtectedMemOutOfBounds);
+  }
+  RiscvOperandGeneratorT<TurbofanAdapter> g(this);
+  Node* base = this->input_at(node, 0);
+  Node* index = this->input_at(node, 1);
+  InstructionOperand addr_reg = g.TempRegister();
+  Emit(kRiscvAdd64, addr_reg, g.UseRegister(base), g.UseRegister(index));
+  InstructionOperand inputs[4] = {
+      g.UseRegister(this->input_at(node, 2)),
+      g.UseImmediate(f.laneidx),
+      addr_reg,
+      g.TempImmediate(0),
+  };
+  opcode |= AddressingModeField::encode(kMode_MRI);
+  Emit(opcode, 0, nullptr, 4, inputs);
+}
+
+template <>
+void InstructionSelectorT<TurboshaftAdapter>::VisitLoadLane(node_t node) {
+  using namespace turboshaft;  // NOLINT(build/namespaces)
+  const Simd128LaneMemoryOp& load = this->Get(node).Cast<Simd128LaneMemoryOp>();
+  InstructionCode opcode = kRiscvS128LoadLane;
+  opcode |= LaneSizeField::encode(load.lane_size() * kBitsPerByte);
+  if (load.kind.with_trap_handler) {
+    opcode |= AccessModeField::encode(kMemoryAccessProtectedMemOutOfBounds);
+  }
+
+  RiscvOperandGeneratorT<TurboshaftAdapter> g(this);
+  node_t base = this->input_at(node, 0);
+  node_t index = this->input_at(node, 1);
+  InstructionOperand addr_reg = g.TempRegister();
+  Emit(kRiscvAdd64, addr_reg, g.UseRegister(base), g.UseRegister(index));
+  opcode |= AddressingModeField::encode(kMode_MRI);
+  Emit(opcode, g.DefineSameAsFirst(node),
+       g.UseRegister(this->input_at(node, 2)), g.UseImmediate(load.lane),
+       addr_reg, g.TempImmediate(0));
+}
+
+template <>
+void InstructionSelectorT<TurbofanAdapter>::VisitLoadLane(Node* node) {
+  LoadLaneParameters params = LoadLaneParametersOf(node->op());
+  DCHECK(
+      params.rep == MachineType::Int8() || params.rep == MachineType::Int16() ||
+      params.rep == MachineType::Int32() || params.rep == MachineType::Int64());
+  LoadStoreLaneParams f(params.rep.representation(), params.laneidx);
+  InstructionCode opcode = kRiscvS128LoadLane;
+  opcode |= LaneSizeField::encode(params.rep.MemSize() * kBitsPerByte);
+  if (params.kind == MemoryAccessKind::kProtectedByTrapHandler) {
+    opcode |= AccessModeField::encode(kMemoryAccessProtectedMemOutOfBounds);
+  }
+  RiscvOperandGeneratorT<TurbofanAdapter> g(this);
+  Node* base = this->input_at(node, 0);
+  Node* index = this->input_at(node, 1);
+  InstructionOperand addr_reg = g.TempRegister();
+  Emit(kRiscvAdd64, addr_reg, g.UseRegister(base), g.UseRegister(index));
+  opcode |= AddressingModeField::encode(kMode_MRI);
+  Emit(opcode, g.DefineSameAsFirst(node), g.UseRegister(node->InputAt(2)),
+       g.UseImmediate(params.laneidx), addr_reg, g.TempImmediate(0));
+}
+
+namespace {
+ArchOpcode GetLoadOpcode(turboshaft::MemoryRepresentation loaded_rep,
+                         turboshaft::RegisterRepresentation result_rep) {
+  // NOTE: The meaning of `loaded_rep` = `MemoryRepresentation::AnyTagged()` is
+  // we are loading a compressed tagged field, while `result_rep` =
+  // `RegisterRepresentation::Tagged()` refers to an uncompressed tagged value.
+  using namespace turboshaft;  // NOLINT(build/namespaces)
+  switch (loaded_rep) {
+    case MemoryRepresentation::Int8():
+      DCHECK_EQ(result_rep, RegisterRepresentation::Word32());
+      return kRiscvLb;
+    case MemoryRepresentation::Uint8():
+      DCHECK_EQ(result_rep, RegisterRepresentation::Word32());
+      return kRiscvLbu;
+    case MemoryRepresentation::Int16():
+      DCHECK_EQ(result_rep, RegisterRepresentation::Word32());
+      return kRiscvLh;
+    case MemoryRepresentation::Uint16():
+      DCHECK_EQ(result_rep, RegisterRepresentation::Word32());
+      return kRiscvLhu;
+    case MemoryRepresentation::Int32():
+      DCHECK_EQ(result_rep, RegisterRepresentation::Word32());
+      return kRiscvLw;
+    case MemoryRepresentation::Uint32():
+      DCHECK_EQ(result_rep, RegisterRepresentation::Word32());
+      return kRiscvLwu;
+    case MemoryRepresentation::Int64():
+    case MemoryRepresentation::Uint64():
+      DCHECK_EQ(result_rep, RegisterRepresentation::Word64());
+      return kRiscvLd;
+    case MemoryRepresentation::Float16():
+      UNIMPLEMENTED();
+    case MemoryRepresentation::Float32():
+      DCHECK_EQ(result_rep, RegisterRepresentation::Float32());
+      return kRiscvLoadFloat;
+    case MemoryRepresentation::Float64():
+      DCHECK_EQ(result_rep, RegisterRepresentation::Float64());
+      return kRiscvLoadDouble;
+#ifdef V8_COMPRESS_POINTERS
+    case MemoryRepresentation::AnyTagged():
+    case MemoryRepresentation::TaggedPointer():
+      if (result_rep == RegisterRepresentation::Compressed()) {
+        return kRiscvLwu;
+      }
+      DCHECK_EQ(result_rep, RegisterRepresentation::Tagged());
+      return kRiscvLoadDecompressTagged;
+    case MemoryRepresentation::TaggedSigned():
+      if (result_rep == RegisterRepresentation::Compressed()) {
+        return kRiscvLwu;
+      }
+      DCHECK_EQ(result_rep, RegisterRepresentation::Tagged());
+      return kRiscvLoadDecompressTaggedSigned;
+#else
+    case MemoryRepresentation::AnyTagged():
+    case MemoryRepresentation::TaggedPointer():
+    case MemoryRepresentation::TaggedSigned():
+      DCHECK_EQ(result_rep, RegisterRepresentation::Tagged());
+      return kRiscvLd;
+#endif
+    case MemoryRepresentation::AnyUncompressedTagged():
+    case MemoryRepresentation::UncompressedTaggedPointer():
+    case MemoryRepresentation::UncompressedTaggedSigned():
+      DCHECK_EQ(result_rep, RegisterRepresentation::Tagged());
+      return kRiscvLd;
+    case MemoryRepresentation::ProtectedPointer():
+      CHECK(V8_ENABLE_SANDBOX_BOOL);
+      return kRiscvLoadDecompressProtected;
+    case MemoryRepresentation::IndirectPointer():
+      UNREACHABLE();
+    case MemoryRepresentation::SandboxedPointer():
+      return kRiscvLoadDecodeSandboxedPointer;
+    case MemoryRepresentation::Simd128():
+      return kRiscvRvvLd;
+    case MemoryRepresentation::Simd256():
+      UNREACHABLE();
   }
 }
 
-template <typename Adapter>
-void InstructionSelectorT<Adapter>::VisitLoadLane(node_t node) {
-  if constexpr (Adapter::IsTurboshaft) {
-    UNIMPLEMENTED();
-  } else {
-    LoadLaneParameters params = LoadLaneParametersOf(node->op());
-    DCHECK(params.rep == MachineType::Int8() ||
-           params.rep == MachineType::Int16() ||
-           params.rep == MachineType::Int32() ||
-           params.rep == MachineType::Int64());
-    LoadStoreLaneParams f(params.rep.representation(), params.laneidx);
-    InstructionCode opcode = kRiscvS128LoadLane;
-    opcode |= LaneSizeField::encode(params.rep.MemSize() * kBitsPerByte);
-    if (params.kind == MemoryAccessKind::kProtected) {
-      opcode |= AccessModeField::encode(kMemoryAccessProtectedMemOutOfBounds);
-    }
-    RiscvOperandGeneratorT<Adapter> g(this);
-    Node* base = this->input_at(node, 0);
-    Node* index = this->input_at(node, 1);
-    InstructionOperand addr_reg = g.TempRegister();
-    Emit(kRiscvAdd64, addr_reg, g.UseRegister(base), g.UseRegister(index));
-    opcode |= AddressingModeField::encode(kMode_MRI);
-    Emit(opcode, g.DefineSameAsFirst(node), g.UseRegister(node->InputAt(2)),
-         g.UseImmediate(params.laneidx), addr_reg, g.TempImmediate(0));
-  }
-}
-
-template <typename Adapter>
-void InstructionSelectorT<Adapter>::VisitLoad(node_t node) {
-  auto load = this->load_view(node);
-  LoadRepresentation load_rep = load.loaded_rep();
-
-  InstructionCode opcode = kArchNop;
+ArchOpcode GetLoadOpcode(LoadRepresentation load_rep) {
   switch (load_rep.representation()) {
     case MachineRepresentation::kFloat32:
-      opcode = kRiscvLoadFloat;
-      break;
+      return kRiscvLoadFloat;
     case MachineRepresentation::kFloat64:
-      opcode = kRiscvLoadDouble;
-      break;
+      return kRiscvLoadDouble;
     case MachineRepresentation::kBit:  // Fall through.
     case MachineRepresentation::kWord8:
-      opcode = load_rep.IsUnsigned() ? kRiscvLbu : kRiscvLb;
-      break;
+      return load_rep.IsUnsigned() ? kRiscvLbu : kRiscvLb;
     case MachineRepresentation::kWord16:
-      opcode = load_rep.IsUnsigned() ? kRiscvLhu : kRiscvLh;
-      break;
+      return load_rep.IsUnsigned() ? kRiscvLhu : kRiscvLh;
     case MachineRepresentation::kWord32:
-      opcode = load_rep.IsUnsigned() ? kRiscvLwu : kRiscvLw;
-      break;
+      return load_rep.IsUnsigned() ? kRiscvLwu : kRiscvLw;
 #ifdef V8_COMPRESS_POINTERS
       case MachineRepresentation::kTaggedSigned:
-        opcode = kRiscvLoadDecompressTaggedSigned;
-        break;
+        return kRiscvLoadDecompressTaggedSigned;
       case MachineRepresentation::kTaggedPointer:
-        opcode = kRiscvLoadDecompressTagged;
-        break;
+        return kRiscvLoadDecompressTagged;
       case MachineRepresentation::kTagged:
-        opcode = kRiscvLoadDecompressTagged;
-        break;
+        return kRiscvLoadDecompressTagged;
 #else
       case MachineRepresentation::kTaggedSigned:   // Fall through.
       case MachineRepresentation::kTaggedPointer:  // Fall through.
       case MachineRepresentation::kTagged:         // Fall through.
 #endif
       case MachineRepresentation::kWord64:
-        opcode = kRiscvLd;
-        break;
+        return kRiscvLd;
       case MachineRepresentation::kSimd128:
-        opcode = kRiscvRvvLd;
-        break;
+        return kRiscvRvvLd;
       case MachineRepresentation::kCompressedPointer:
       case MachineRepresentation::kCompressed:
 #ifdef V8_COMPRESS_POINTERS
-        opcode = kRiscvLw;
-        break;
+        return kRiscvLwu;
 #else
 #endif
       case MachineRepresentation::kProtectedPointer:
         CHECK(V8_ENABLE_SANDBOX_BOOL);
-        opcode = kRiscvLoadDecompressProtected;
-        break;
+        return kRiscvLoadDecompressProtected;
       case MachineRepresentation::kSandboxedPointer:
-        opcode = kRiscvLoadDecodeSandboxedPointer;
-        break;
+        return kRiscvLoadDecodeSandboxedPointer;
       case MachineRepresentation::kSimd256:  // Fall through.
       case MachineRepresentation::kMapWord:  // Fall through.
       case MachineRepresentation::kIndirectPointer:  // Fall through.
@@ -453,16 +551,114 @@ void InstructionSelectorT<Adapter>::VisitLoad(node_t node) {
       case MachineRepresentation::kNone:
         UNREACHABLE();
     }
-    bool traps_on_null;
-    if (load.is_protected(&traps_on_null)) {
-      if (traps_on_null) {
-        opcode |=
-            AccessModeField::encode(kMemoryAccessProtectedNullDereference);
-      } else {
-        opcode |= AccessModeField::encode(kMemoryAccessProtectedMemOutOfBounds);
-      }
+}
+ArchOpcode GetStoreOpcode(turboshaft::MemoryRepresentation stored_rep) {
+  using namespace turboshaft;  // NOLINT(build/namespaces)
+  switch (stored_rep) {
+    case MemoryRepresentation::Int8():
+    case MemoryRepresentation::Uint8():
+      return kRiscvSb;
+    case MemoryRepresentation::Int16():
+    case MemoryRepresentation::Uint16():
+      return kRiscvSh;
+    case MemoryRepresentation::Int32():
+    case MemoryRepresentation::Uint32():
+      return kRiscvSw;
+    case MemoryRepresentation::Int64():
+    case MemoryRepresentation::Uint64():
+      return kRiscvSd;
+    case MemoryRepresentation::Float16():
+      UNIMPLEMENTED();
+    case MemoryRepresentation::Float32():
+      return kRiscvStoreFloat;
+    case MemoryRepresentation::Float64():
+      return kRiscvStoreDouble;
+    case MemoryRepresentation::AnyTagged():
+    case MemoryRepresentation::TaggedPointer():
+    case MemoryRepresentation::TaggedSigned():
+      return kRiscvStoreCompressTagged;
+    case MemoryRepresentation::AnyUncompressedTagged():
+    case MemoryRepresentation::UncompressedTaggedPointer():
+    case MemoryRepresentation::UncompressedTaggedSigned():
+      return kRiscvSd;
+    case MemoryRepresentation::ProtectedPointer():
+      // We never store directly to protected pointers from generated code.
+      UNREACHABLE();
+    case MemoryRepresentation::IndirectPointer():
+      return kRiscvStoreIndirectPointer;
+    case MemoryRepresentation::SandboxedPointer():
+      return kRiscvStoreEncodeSandboxedPointer;
+    case MemoryRepresentation::Simd128():
+      return kRiscvRvvSt;
+    case MemoryRepresentation::Simd256():
+      UNREACHABLE();
+  }
+}
+
+ArchOpcode GetStoreOpcode(MachineRepresentation rep) {
+  switch (rep) {
+    case MachineRepresentation::kFloat32:
+      return kRiscvStoreFloat;
+    case MachineRepresentation::kFloat64:
+      return kRiscvStoreDouble;
+    case MachineRepresentation::kBit:  // Fall through.
+    case MachineRepresentation::kWord8:
+      return kRiscvSb;
+    case MachineRepresentation::kWord16:
+      return kRiscvSh;
+    case MachineRepresentation::kWord32:
+      return kRiscvSw;
+    case MachineRepresentation::kTaggedSigned:   // Fall through.
+    case MachineRepresentation::kTaggedPointer:  // Fall through.
+    case MachineRepresentation::kTagged:
+#ifdef V8_COMPRESS_POINTERS
+      return kRiscvStoreCompressTagged;
+#endif
+    case MachineRepresentation::kWord64:
+      return kRiscvSd;
+    case MachineRepresentation::kSimd128:
+      return kRiscvRvvSt;
+    case MachineRepresentation::kCompressedPointer:  // Fall through.
+    case MachineRepresentation::kCompressed:
+#ifdef V8_COMPRESS_POINTERS
+      return kRiscvStoreCompressTagged;
+#else
+      UNREACHABLE();
+#endif
+    case MachineRepresentation::kSandboxedPointer:
+      return kRiscvStoreEncodeSandboxedPointer;
+    case MachineRepresentation::kIndirectPointer:
+      return kRiscvStoreIndirectPointer;
+    case MachineRepresentation::kSimd256:  // Fall through.
+    case MachineRepresentation::kMapWord:  // Fall through.
+    case MachineRepresentation::kNone:
+    case MachineRepresentation::kProtectedPointer:
+    case MachineRepresentation::kFloat16:
+      UNREACHABLE();
+  }
+}
+}  // namespace
+
+template <typename Adapter>
+void InstructionSelectorT<Adapter>::VisitLoad(node_t node) {
+  auto load = this->load_view(node);
+  LoadRepresentation load_rep = load.loaded_rep();
+
+  InstructionCode opcode = kArchNop;
+  if constexpr (Adapter::IsTurboshaft) {
+    opcode = GetLoadOpcode(load.ts_loaded_rep(), load.ts_result_rep());
+  } else {
+    opcode = GetLoadOpcode(load_rep);
+  }
+  bool traps_on_null;
+  if (load.is_protected(&traps_on_null)) {
+    if (traps_on_null) {
+      opcode |= AccessModeField::encode(kMemoryAccessProtectedNullDereference);
+    } else {
+      opcode |= AccessModeField::encode(kMemoryAccessProtectedMemOutOfBounds);
     }
-    EmitLoad(this, node, opcode);
+  }
+  EmitLoad(this, node, opcode);
 }
 
 template <typename Adapter>
@@ -486,7 +682,7 @@ void InstructionSelectorT<Adapter>::VisitStore(typename Adapter::node_t node) {
 
   WriteBarrierKind write_barrier_kind =
       store_view.stored_rep().write_barrier_kind();
-  MachineRepresentation rep = store_view.stored_rep().representation();
+  const MachineRepresentation rep = store_view.stored_rep().representation();
 
   // TODO(riscv): I guess this could be done in a better way.
   if (write_barrier_kind != kNoWriteBarrier &&
@@ -516,84 +712,41 @@ void InstructionSelectorT<Adapter>::VisitStore(typename Adapter::node_t node) {
       code |= AccessModeField::encode(kMemoryAccessProtectedNullDereference);
     }
     Emit(code, 0, nullptr, input_count, inputs, temp_count, temps);
+    return;
+  }
+
+  MachineRepresentation approx_rep = rep;
+  InstructionCode code;
+  if constexpr (Adapter::IsTurboshaft) {
+    code = GetStoreOpcode(store_view.ts_stored_rep());
   } else {
-    InstructionCode code;
-    switch (rep) {
-      case MachineRepresentation::kFloat32:
-        code = kRiscvStoreFloat;
-        break;
-      case MachineRepresentation::kFloat64:
-        code = kRiscvStoreDouble;
-        break;
-      case MachineRepresentation::kBit:  // Fall through.
-      case MachineRepresentation::kWord8:
-        code = kRiscvSb;
-        break;
-      case MachineRepresentation::kWord16:
-        code = kRiscvSh;
-        break;
-      case MachineRepresentation::kWord32:
-        code = kRiscvSw;
-        break;
-      case MachineRepresentation::kTaggedSigned:   // Fall through.
-      case MachineRepresentation::kTaggedPointer:  // Fall through.
-      case MachineRepresentation::kTagged:
-#ifdef V8_COMPRESS_POINTERS
-        code = kRiscvStoreCompressTagged;
-        break;
-#endif
-      case MachineRepresentation::kWord64:
-        code = kRiscvSd;
-        break;
-      case MachineRepresentation::kSimd128:
-        code = kRiscvRvvSt;
-        break;
-      case MachineRepresentation::kCompressedPointer:  // Fall through.
-      case MachineRepresentation::kCompressed:
-#ifdef V8_COMPRESS_POINTERS
-        code = kRiscvStoreCompressTagged;
-        break;
-#else
-        UNREACHABLE();
-#endif
-      case MachineRepresentation::kSandboxedPointer:
-        code = kRiscvStoreEncodeSandboxedPointer;
-        break;
-      case MachineRepresentation::kIndirectPointer:
-        code = kRiscvStoreIndirectPointer;
-        break;
-      case MachineRepresentation::kSimd256:  // Fall through.
-      case MachineRepresentation::kMapWord:  // Fall through.
-      case MachineRepresentation::kNone:
-      case MachineRepresentation::kProtectedPointer:
-      case MachineRepresentation::kFloat16:
-        UNREACHABLE();
-    }
+    code = GetStoreOpcode(approx_rep);
+  }
 
-    if (this->is_load_root_register(base)) {
-      Emit(code | AddressingModeField::encode(kMode_Root), g.NoOutput(),
-           g.UseRegisterOrImmediateZero(value), g.UseImmediate(index));
-      return;
-    }
+  if (this->is_load_root_register(base)) {
+    Emit(code | AddressingModeField::encode(kMode_Root), g.NoOutput(),
+         g.UseRegisterOrImmediateZero(value), g.UseImmediate(index));
+    return;
+  }
 
-    if (store_view.is_store_trap_on_null()) {
-      code |= AccessModeField::encode(kMemoryAccessProtectedNullDereference);
-    } else if (store_view.access_kind() == MemoryAccessKind::kProtected) {
-      code |= AccessModeField::encode(kMemoryAccessProtectedMemOutOfBounds);
-    }
+  if (store_view.is_store_trap_on_null()) {
+    code |= AccessModeField::encode(kMemoryAccessProtectedNullDereference);
+  } else if (store_view.access_kind() ==
+             MemoryAccessKind::kProtectedByTrapHandler) {
+    code |= AccessModeField::encode(kMemoryAccessProtectedMemOutOfBounds);
+  }
 
-    if (g.CanBeImmediate(index, code)) {
-      Emit(code | AddressingModeField::encode(kMode_MRI), g.NoOutput(),
-           g.UseRegisterOrImmediateZero(value), g.UseRegister(base),
-           g.UseImmediate(index));
-    } else {
-      InstructionOperand addr_reg = g.TempRegister();
-      Emit(kRiscvAdd64 | AddressingModeField::encode(kMode_None), addr_reg,
-           g.UseRegister(index), g.UseRegister(base));
-      // Emit desired store opcode, using temp addr_reg.
-      Emit(code | AddressingModeField::encode(kMode_MRI), g.NoOutput(),
-           g.UseRegisterOrImmediateZero(value), addr_reg, g.TempImmediate(0));
-    }
+  if (g.CanBeImmediate(index, code)) {
+    Emit(code | AddressingModeField::encode(kMode_MRI), g.NoOutput(),
+         g.UseRegisterOrImmediateZero(value), g.UseRegister(base),
+         g.UseImmediate(index));
+  } else {
+    InstructionOperand addr_reg = g.TempRegister();
+    Emit(kRiscvAdd64 | AddressingModeField::encode(kMode_None), addr_reg,
+         g.UseRegister(index), g.UseRegister(base));
+    // Emit desired store opcode, using temp addr_reg.
+    Emit(code | AddressingModeField::encode(kMode_MRI), g.NoOutput(),
+         g.UseRegisterOrImmediateZero(value), addr_reg, g.TempImmediate(0));
   }
 }
 
@@ -1546,6 +1699,7 @@ void InstructionSelectorT<Adapter>::VisitChangeInt32ToInt64(node_t node) {
           // IrOpcode::kTruncateInt64ToInt32 and directly use the inputs, values
           // with kWord64 can also reach this line.
         case MachineRepresentation::kTaggedSigned:
+        case MachineRepresentation::kTaggedPointer:
         case MachineRepresentation::kTagged:
           opcode = kRiscvLw;
           break;
@@ -1692,17 +1846,17 @@ void InstructionSelectorT<TurboshaftAdapter>::VisitTruncateInt64ToInt32(
   auto value = input_at(node, 0);
   if (CanCover(node, value)) {
     if (Get(value).Is<Opmask::kWord64ShiftRightArithmetic>()) {
+      auto shift_value = input_at(value, 1);
       if (CanCover(value, input_at(value, 0)) &&
           TryEmitExtendingLoad(this, value, node)) {
         return;
-      } else {
-        auto constant = constant_view(input_at(value, 1));
+      } else if (g.IsIntegerConstant(shift_value)) {
+        auto constant = constant_view(shift_value);
         if (constant.is_int64()) {
           if (constant.int64_value() <= 63 && constant.int64_value() >= 32) {
             // After smi untagging no need for truncate. Combine sequence.
             Emit(kRiscvSar64, g.DefineSameAsFirst(node),
-                 g.UseRegister(input_at(value, 0)),
-                 g.UseImmediate(input_at(value, 1)));
+                 g.UseRegister(input_at(value, 0)), g.UseImmediate(constant));
             return;
           }
         }
@@ -1713,8 +1867,8 @@ void InstructionSelectorT<TurboshaftAdapter>::VisitTruncateInt64ToInt32(
   // the truncated value; arm treats it as nop thus the upper 32-bit as
   // undefined; Riscv emits ext instruction which zero-extend the 32-bit
   // value; for riscv, we do sign-extension of the truncated value
-  Emit(kRiscvSignExtendWord, g.DefineAsRegister(node),
-       g.UseRegister(input_at(node, 0)), g.TempImmediate(0));
+  Emit(kRiscvSignExtendWord, g.DefineAsRegister(node), g.UseRegister(value),
+       g.TempImmediate(0));
 }
 
 template <typename Adapter>
@@ -1874,14 +2028,11 @@ void InstructionSelectorT<Adapter>::EmitPrepareArguments(
 
 template <typename Adapter>
 void InstructionSelectorT<Adapter>::VisitUnalignedLoad(node_t node) {
-  if constexpr (Adapter::IsTurboshaft) {
-    UNIMPLEMENTED();
-  } else {
     auto load = this->load_view(node);
     LoadRepresentation load_rep = load.loaded_rep();
     RiscvOperandGeneratorT<Adapter> g(this);
-    Node* base = this->input_at(node, 0);
-    Node* index = this->input_at(node, 1);
+    node_t base = this->input_at(node, 0);
+    node_t index = this->input_at(node, 1);
 
     InstructionCode opcode = kArchNop;
     switch (load_rep.representation()) {
@@ -1941,7 +2092,6 @@ void InstructionSelectorT<Adapter>::VisitUnalignedLoad(node_t node) {
       // Emit desired load opcode, using temp addr_reg.
       Emit(opcode | AddressingModeField::encode(kMode_MRI),
            g.DefineAsRegister(node), addr_reg, g.TempImmediate(0));
-    }
   }
 }
 
@@ -2013,10 +2163,8 @@ void InstructionSelectorT<Adapter>::VisitUnalignedStore(node_t node) {
 
 namespace {
 
-#ifndef V8_COMPRESS_POINTERS
-bool IsNodeUnsigned(Node* n) {
+bool IsNodeUnsigned(typename TurbofanAdapter::node_t n) {
   NodeMatcher m(n);
-
   if (m.IsLoad() || m.IsUnalignedLoad() || m.IsProtectedLoad()) {
     LoadRepresentation load_rep = LoadRepresentationOf(n->op());
     return load_rep.IsUnsigned();
@@ -2031,7 +2179,54 @@ bool IsNodeUnsigned(Node* n) {
            m.IsTruncateFloat64ToUint32() || m.IsTruncateFloat32ToUint32();
   }
 }
-#endif
+
+bool IsNodeUnsigned(InstructionSelectorT<TurboshaftAdapter>* selector,
+                    typename TurboshaftAdapter::node_t n) {
+  using namespace turboshaft;  // NOLINT(build/namespaces)
+  const Operation& op = selector->Get(n);
+  if (op.Is<LoadOp>()) {
+    const LoadOp& load = op.Cast<LoadOp>();
+    return load.machine_type().IsUnsigned() ||
+           load.machine_type().IsCompressed();
+  } else if (op.Is<WordBinopOp>()) {
+    const WordBinopOp& binop = op.Cast<WordBinopOp>();
+    switch (binop.kind) {
+      case WordBinopOp::Kind::kUnsignedDiv:
+      case WordBinopOp::Kind::kUnsignedMod:
+      case WordBinopOp::Kind::kUnsignedMulOverflownBits:
+        return true;
+      default:
+        return false;
+    }
+  } else if (op.Is<ChangeOrDeoptOp>()) {
+    const ChangeOrDeoptOp& change = op.Cast<ChangeOrDeoptOp>();
+    return change.kind == ChangeOrDeoptOp::Kind::kFloat64ToUint32;
+  } else if (op.Is<ConvertJSPrimitiveToUntaggedOp>()) {
+    const ConvertJSPrimitiveToUntaggedOp& convert =
+        op.Cast<ConvertJSPrimitiveToUntaggedOp>();
+    return convert.kind ==
+           ConvertJSPrimitiveToUntaggedOp::UntaggedKind::kUint32;
+  } else if (op.Is<ConstantOp>()) {
+    const ConstantOp& constant = op.Cast<ConstantOp>();
+    return constant.kind == ConstantOp::Kind::kCompressedHeapObject;
+  } else {
+    return false;
+  }
+}
+
+bool CanUseOptimizedWord32Compare(
+    InstructionSelectorT<TurboshaftAdapter>* selector,
+    typename TurboshaftAdapter::node_t node) {
+  using namespace turboshaft;  // NOLINT(build/namespaces)
+  if (COMPRESS_POINTERS_BOOL) {
+    return false;
+  }
+  if (IsNodeUnsigned(selector, selector->input_at(node, 0)) ==
+      IsNodeUnsigned(selector, selector->input_at(node, 1))) {
+    return true;
+  }
+  return false;
+}
 
 // Shared routine for multiple word compare operations.
 template <typename Adapter>
@@ -2050,13 +2245,16 @@ void VisitFullWord32Compare(InstructionSelectorT<Adapter>* selector,
                  g.UseRegister(selector->input_at(node, 1)),
                  g.TempImmediate(32));
 
-  VisitCompare(selector, opcode, leftOp, rightOp, cont);
+  Instruction* instr = VisitCompare(selector, opcode, leftOp, rightOp, cont);
+  if constexpr (Adapter::IsTurboshaft) {
+    selector->UpdateSourcePosition(instr, node);
+  }
 }
 
-#ifndef V8_COMPRESS_POINTERS
 template <typename Adapter>
 void VisitOptimizedWord32Compare(InstructionSelectorT<Adapter>* selector,
-                                 Node* node, InstructionCode opcode,
+                                 typename Adapter::node_t node,
+                                 InstructionCode opcode,
                                  FlagsContinuationT<Adapter>* cont) {
   if (v8_flags.debug_code) {
     RiscvOperandGeneratorT<Adapter> g(selector);
@@ -2072,7 +2270,6 @@ void VisitOptimizedWord32Compare(InstructionSelectorT<Adapter>* selector,
     selector->Emit(testOpcode, optimizedResult,
                    g.UseRegister(selector->input_at(node, 0)),
                    g.UseRegister(selector->input_at(node, 1)));
-
     selector->Emit(kRiscvShl64, leftOp,
                    g.UseRegister(selector->input_at(node, 0)),
                    g.TempImmediate(32));
@@ -2086,15 +2283,30 @@ void VisitOptimizedWord32Compare(InstructionSelectorT<Adapter>* selector,
                        AbortReason::kUnsupportedNonPrimitiveCompare)));
   }
 
-  VisitWordCompare(selector, node, opcode, cont, false);
+  Instruction* instr = VisitWordCompare(selector, node, opcode, cont, false);
+  if constexpr (Adapter::IsTurboshaft) {
+    selector->UpdateSourcePosition(instr, node);
+  }
 }
-#endif
+
 template <typename Adapter>
 void VisitWord32Compare(InstructionSelectorT<Adapter>* selector,
                         typename Adapter::node_t node,
                         FlagsContinuationT<Adapter>* cont) {
   if constexpr (Adapter::IsTurboshaft) {
-    VisitFullWord32Compare(selector, node, kRiscvCmp, cont);
+    using namespace turboshaft;  // NOLINT(build/namespaces)
+#ifdef USE_SIMULATOR
+    const Operation& lhs = selector->Get(selector->input_at(node, 0));
+    const Operation& rhs = selector->Get(selector->input_at(node, 1));
+    if (lhs.Is<DidntThrowOp>() || rhs.Is<DidntThrowOp>()) {
+      VisitFullWord32Compare(selector, node, kRiscvCmp, cont);
+    } else
+#endif
+        if (!CanUseOptimizedWord32Compare(selector, node)) {
+      VisitFullWord32Compare(selector, node, kRiscvCmp, cont);
+    } else {
+      VisitOptimizedWord32Compare(selector, node, kRiscvCmp, cont);
+    }
   } else {
     // RISC-V doesn't support Word32 compare instructions. Instead it relies
     // that the values in registers are correctly sign-extended and uses
@@ -2108,27 +2320,27 @@ void VisitWord32Compare(InstructionSelectorT<Adapter>* selector,
     // in those cases. Unfortunately, the solution is not complete because
     // it might skip cases where Word32 full compare is needed, so
     // basically it is a hack.
-    // When call to a host function in simulator, if the function return a
-    // int32 value, the simulator do not sign-extended to int64 because in
-    // simulator we do not know the function whether return a int32 or int64.
-    // so we need do a full word32 compare in this case.
-#ifndef V8_COMPRESS_POINTERS
+    // When calling a host function in the simulator, if the function returns an
+    // int32 value, the simulator does not sign-extend it to int64 because in
+    // the simulator we do not know whether the function returns an int32 or
+    // an int64. So we need to do a full word32 compare in this case.
+    if (!COMPRESS_POINTERS_BOOL) {
 #ifndef USE_SIMULATOR
-    if (IsNodeUnsigned(selector->input_at(node, 0)) !=
-        IsNodeUnsigned(node->InputAt(1))) {
+      if (IsNodeUnsigned(selector->input_at(node, 0)) !=
+          IsNodeUnsigned(node->InputAt(1))) {
 #else
-    if (IsNodeUnsigned(selector->input_at(node, 0)) !=
-            IsNodeUnsigned(node->InputAt(1)) ||
-        node->InputAt(0)->opcode() == IrOpcode::kCall ||
-        node->InputAt(1)->opcode() == IrOpcode::kCall) {
+      if (IsNodeUnsigned(selector->input_at(node, 0)) !=
+              IsNodeUnsigned(node->InputAt(1)) ||
+          node->InputAt(0)->opcode() == IrOpcode::kCall ||
+          node->InputAt(1)->opcode() == IrOpcode::kCall) {
 #endif
-      VisitFullWord32Compare(selector, node, kRiscvCmp, cont);
+        VisitFullWord32Compare(selector, node, kRiscvCmp, cont);
+      } else {
+        VisitOptimizedWord32Compare(selector, node, kRiscvCmp, cont);
+      }
     } else {
-      VisitOptimizedWord32Compare(selector, node, kRiscvCmp, cont);
+      VisitFullWord32Compare(selector, node, kRiscvCmp, cont);
     }
-#else
-    VisitFullWord32Compare(selector, node, kRiscvCmp, cont);
-#endif
   }
 }
 
@@ -2213,7 +2425,7 @@ void VisitAtomicLoad(InstructionSelectorT<Adapter>* selector,
   } else {
     InstructionOperand addr_reg = g.TempRegister();
     selector->Emit(kRiscvAdd64 | AddressingModeField::encode(kMode_None),
-                   addr_reg, g.UseRegister(index), g.UseRegister(base));
+                   addr_reg, g.UseRegister(base), g.UseRegister(index));
     // Emit desired load opcode, using temp addr_reg.
     selector->Emit(code | AddressingModeField::encode(kMode_MRI) |
                        AtomicWidthField::encode(width),
@@ -2266,7 +2478,7 @@ void VisitAtomicLoad(InstructionSelectorT<TurbofanAdapter>* selector,
       UNREACHABLE();
   }
 
-  if (atomic_load_params.kind() == MemoryAccessKind::kProtected) {
+  if (atomic_load_params.kind() == MemoryAccessKind::kProtectedByTrapHandler) {
     code |= AccessModeField::encode(kMemoryAccessProtectedMemOutOfBounds);
   }
 
@@ -2362,7 +2574,7 @@ void VisitAtomicStore(InstructionSelectorT<Adapter>* selector,
     }
     code |= AtomicWidthField::encode(width);
 
-    if (store_params.kind() == MemoryAccessKind::kProtected) {
+    if (store_params.kind() == MemoryAccessKind::kProtectedByTrapHandler) {
       code |= AccessModeField::encode(kMemoryAccessProtectedMemOutOfBounds);
     }
     if (g.CanBeImmediate(index, code)) {
@@ -2409,7 +2621,7 @@ void VisitAtomicBinop(InstructionSelectorT<Adapter>* selector,
   temps[3] = g.TempRegister();
   InstructionCode code = opcode | AddressingModeField::encode(addressing_mode) |
                          AtomicWidthField::encode(width);
-  if (access_kind == MemoryAccessKind::kProtected) {
+  if (access_kind == MemoryAccessKind::kProtectedByTrapHandler) {
     code |= AccessModeField::encode(kMemoryAccessProtectedMemOutOfBounds);
   }
   selector->Emit(code, 1, outputs, input_count, inputs, 4, temps);
@@ -2583,10 +2795,12 @@ void InstructionSelectorT<TurbofanAdapter>::VisitWordCompareZero(
         break;
       case IrOpcode::kWord32And:
 #if V8_COMPRESS_POINTERS
-          return VisitWordCompare(this, value, kRiscvTst32, cont, true);
+        VisitWordCompare(this, value, kRiscvTst32, cont, true);
+        return;
 #endif
         case IrOpcode::kWord64And:
-          return VisitWordCompare(this, value, kRiscvTst64, cont, true);
+          VisitWordCompare(this, value, kRiscvTst64, cont, true);
+          return;
         case IrOpcode::kStackPointerGreaterThan:
           cont->OverwriteAndNegateIfEqual(kStackPointerGreaterThanCondition);
           return VisitStackPointerGreaterThan(value, cont);
@@ -2775,8 +2989,9 @@ void InstructionSelectorT<Adapter>::VisitWord32Equal(node_t node) {
           Tagged_t ptr =
               MacroAssemblerBase::ReadOnlyRootPtr(root_index, isolate());
           if (g.CanBeImmediate(ptr, kRiscvCmp32)) {
-            return VisitCompare(this, kRiscvCmp32, g.UseRegister(left),
-                                g.TempImmediate(int32_t(ptr)), &cont);
+            VisitCompare(this, kRiscvCmp32, g.UseRegister(left),
+                         g.TempImmediate(int32_t(ptr)), &cont);
+            return;
           }
         }
       }
@@ -2813,8 +3028,9 @@ void InstructionSelectorT<TurboshaftAdapter>::VisitWord32Equal(node_t node) {
         Tagged_t ptr =
             MacroAssemblerBase::ReadOnlyRootPtr(root_index, isolate());
         if (g.CanBeImmediate(ptr, kRiscvCmp32)) {
-          return VisitCompare(this, kRiscvCmp32, g.UseRegister(left),
-                              g.TempImmediate(int32_t(ptr)), &cont);
+          VisitCompare(this, kRiscvCmp32, g.UseRegister(left),
+                       g.TempImmediate(int32_t(ptr)), &cont);
+          return;
         }
       }
     }
@@ -3044,7 +3260,7 @@ void VisitAtomicExchange(InstructionSelectorT<Adapter>* selector,
 
   InstructionCode code = opcode | AddressingModeField::encode(kMode_MRI) |
                          AtomicWidthField::encode(width);
-  if (access_kind == MemoryAccessKind::kProtected) {
+  if (access_kind == MemoryAccessKind::kProtectedByTrapHandler) {
     code |= AccessModeField::encode(kMemoryAccessProtectedMemOutOfBounds);
   }
   selector->Emit(code, 1, outputs, input_count, inputs, 3, temp);
@@ -3078,7 +3294,7 @@ void VisitAtomicCompareExchange(InstructionSelectorT<Adapter>* selector,
   temp[2] = g.TempRegister();
   InstructionCode code = opcode | AddressingModeField::encode(addressing_mode) |
                          AtomicWidthField::encode(width);
-  if (access_kind == MemoryAccessKind::kProtected) {
+  if (access_kind == MemoryAccessKind::kProtectedByTrapHandler) {
     code |= AccessModeField::encode(kMemoryAccessProtectedMemOutOfBounds);
   }
   selector->Emit(code, 1, outputs, input_count, inputs, 3, temp);
@@ -3404,9 +3620,6 @@ void InstructionSelectorT<Adapter>::VisitSignExtendWord32ToInt64(node_t node) {
 
 template <typename Adapter>
 void InstructionSelectorT<Adapter>::VisitF64x2Min(node_t node) {
-  if constexpr (Adapter::IsTurboshaft) {
-    UNIMPLEMENTED();
-  } else {
     RiscvOperandGeneratorT<Adapter> g(this);
     InstructionOperand temp1 = g.TempFpRegister(v0);
     InstructionOperand temp2 = g.TempFpRegister(kSimd128ScratchReg);
@@ -3429,14 +3642,10 @@ void InstructionSelectorT<Adapter>::VisitF64x2Min(node_t node) {
                g.UseImmediate(m1), g.UseImmediate(MaskType::Mask));
     this->Emit(kRiscvVmv, g.DefineAsRegister(node), result, g.UseImmediate(E64),
                g.UseImmediate(m1));
-  }
 }
 
 template <typename Adapter>
 void InstructionSelectorT<Adapter>::VisitF64x2Max(node_t node) {
-  if constexpr (Adapter::IsTurboshaft) {
-    UNIMPLEMENTED();
-  } else {
     RiscvOperandGeneratorT<Adapter> g(this);
     InstructionOperand temp1 = g.TempFpRegister(v0);
     InstructionOperand temp2 = g.TempFpRegister(kSimd128ScratchReg);
@@ -3459,8 +3668,27 @@ void InstructionSelectorT<Adapter>::VisitF64x2Max(node_t node) {
                g.UseImmediate(m1), g.UseImmediate(MaskType::Mask));
     this->Emit(kRiscvVmv, g.DefineAsRegister(node), result, g.UseImmediate(E64),
                g.UseImmediate(m1));
-  }
 }
+
+// template <typename Adapter>
+// void InstructionSelectorT<Adapter>::Comment(const std::string msg){
+//     RiscvOperandGeneratorT<Adapter> g(this);
+//     if (!v8_flags.code_comments) return;
+//     int64_t length = msg.length() + 1;
+//     char* zone_buffer =
+//     reinterpret_cast<char*>(this->isolate()->array_buffer_allocator()->Allocate(length));
+//     memset(zone_buffer, '\0', length);
+//     MemCopy(zone_buffer, msg.c_str(), length);
+//     using ptrsize_int_t =
+//         std::conditional<kSystemPointerSize == 8, int64_t, int32_t>::type;
+//     InstructionOperand operand = this->sequence()->AddImmediate(
+//         Constant{reinterpret_cast<ptrsize_int_t>(zone_buffer)});
+//     InstructionOperand inputs[2];
+//     inputs[0] = operand;
+//     inputs[1] = g.UseImmediate64(length);
+//     this->Emit(kArchComment, 0, nullptr, 1, inputs);
+// }
+
 // static
 MachineOperatorBuilder::Flags
 InstructionSelector::SupportedMachineOperatorFlags() {
@@ -3481,8 +3709,6 @@ InstructionSelector::SupportedMachineOperatorFlags() {
          MachineOperatorBuilder::kFloat64RoundTiesEven |
          MachineOperatorBuilder::kFloat32RoundTiesEven;
 }
-#undef TRACE_UNIMPL
-#undef TRACE
 
 template class EXPORT_TEMPLATE_DEFINE(V8_EXPORT_PRIVATE)
     InstructionSelectorT<TurbofanAdapter>;

@@ -40,13 +40,8 @@ Register GetRegisterThatIsNotOneOf(Register reg1, Register reg2 = no_reg,
                                    Register reg6 = no_reg);
 
 // These exist to provide portability between 32 and 64bit
-#if V8_TARGET_ARCH_PPC64
 #define ClearLeftImm clrldi
 #define ClearRightImm clrrdi
-#else
-#define ClearLeftImm clrlwi
-#define ClearRightImm clrrwi
-#endif
 
 class V8_EXPORT_PRIVATE MacroAssembler : public MacroAssemblerBase {
  public:
@@ -73,30 +68,23 @@ class V8_EXPORT_PRIVATE MacroAssembler : public MacroAssemblerBase {
   // a float, storing the result in |dst|
   void ConvertUnsignedIntToFloat(Register src, DoubleRegister dst);
 
-#if V8_TARGET_ARCH_PPC64
   void ConvertInt64ToFloat(Register src, DoubleRegister double_dst);
   void ConvertInt64ToDouble(Register src, DoubleRegister double_dst);
   void ConvertUnsignedInt64ToFloat(Register src, DoubleRegister double_dst);
   void ConvertUnsignedInt64ToDouble(Register src, DoubleRegister double_dst);
-#endif
 
   // Converts the double_input to an integer.  Note that, upon return,
   // the contents of double_dst will also hold the fixed point representation.
   void ConvertDoubleToInt64(const DoubleRegister double_input,
-#if !V8_TARGET_ARCH_PPC64
-                            const Register dst_hi,
-#endif
                             const Register dst, const DoubleRegister double_dst,
                             FPRoundingMode rounding_mode = kRoundToZero);
 
-#if V8_TARGET_ARCH_PPC64
   // Converts the double_input to an unsigned integer.  Note that, upon return,
   // the contents of double_dst will also hold the fixed point representation.
   void ConvertDoubleToUnsignedInt64(
       const DoubleRegister double_input, const Register dst,
       const DoubleRegister double_dst,
       FPRoundingMode rounding_mode = kRoundToZero);
-#endif
 
   // Activation support.
   void EnterFrame(StackFrame::Type type,
@@ -691,21 +679,6 @@ class V8_EXPORT_PRIVATE MacroAssembler : public MacroAssemblerBase {
   // Print a message to stdout and abort execution.
   void Abort(AbortReason reason);
 
-#if !V8_TARGET_ARCH_PPC64
-  void ShiftLeftPair(Register dst_low, Register dst_high, Register src_low,
-                     Register src_high, Register scratch, Register shift);
-  void ShiftLeftPair(Register dst_low, Register dst_high, Register src_low,
-                     Register src_high, uint32_t shift);
-  void ShiftRightPair(Register dst_low, Register dst_high, Register src_low,
-                      Register src_high, Register scratch, Register shift);
-  void ShiftRightPair(Register dst_low, Register dst_high, Register src_low,
-                      Register src_high, uint32_t shift);
-  void ShiftRightAlgPair(Register dst_low, Register dst_high, Register src_low,
-                         Register src_high, Register scratch, Register shift);
-  void ShiftRightAlgPair(Register dst_low, Register dst_high, Register src_low,
-                         Register src_high, uint32_t shift);
-#endif
-
   void LoadFromConstantsTable(Register destination, int constant_index) final;
   void LoadRootRegisterOffset(Register destination, intptr_t offset) final;
   void LoadRootRelative(Register destination, int32_t offset) final;
@@ -738,10 +711,18 @@ class V8_EXPORT_PRIVATE MacroAssembler : public MacroAssemblerBase {
             Condition cond = al);
   void Call(Label* target);
 
+  void GetLabelAddress(Register dst, Label* target);
+
   // Load the builtin given by the Smi in |builtin_index| into |target|.
   void LoadEntryFromBuiltinIndex(Register builtin_index, Register target);
   void LoadEntryFromBuiltin(Builtin builtin, Register destination);
   MemOperand EntryFromBuiltinAsOperand(Builtin builtin);
+
+#ifdef V8_ENABLE_LEAPTIERING
+  void LoadEntrypointFromJSDispatchTable(Register destination,
+                                         Register dispatch_handle,
+                                         Register scratch);
+#endif  // V8_ENABLE_LEAPTIERING
 
   // Load the code entry point from the Code object.
   void LoadCodeInstructionStart(
@@ -752,6 +733,9 @@ class V8_EXPORT_PRIVATE MacroAssembler : public MacroAssemblerBase {
                       JumpMode jump_mode = JumpMode::kJump);
 
   void CallBuiltinByIndex(Register builtin_index, Register target);
+
+  // TODO(olivf, 42204201) Rename this to AssertNotDeoptimized once
+  // non-leaptiering is removed from the codebase.
   void BailoutIfDeoptimized();
   void CallForDeoptimization(Builtin target, int deopt_id, Label* exit,
                              DeoptimizeKind kind, Label* ret,
@@ -782,22 +766,14 @@ class V8_EXPORT_PRIVATE MacroAssembler : public MacroAssemblerBase {
   void MovUnsignedIntToDouble(DoubleRegister dst, Register src,
                               Register scratch);
   void MovInt64ToDouble(DoubleRegister dst,
-#if !V8_TARGET_ARCH_PPC64
-                        Register src_hi,
-#endif
                         Register src);
-#if V8_TARGET_ARCH_PPC64
   void MovInt64ComponentsToDouble(DoubleRegister dst, Register src_hi,
                                   Register src_lo, Register scratch);
-#endif
   void InsertDoubleLow(DoubleRegister dst, Register src, Register scratch);
   void InsertDoubleHigh(DoubleRegister dst, Register src, Register scratch);
   void MovDoubleLowToInt(Register dst, DoubleRegister src);
   void MovDoubleHighToInt(Register dst, DoubleRegister src);
   void MovDoubleToInt64(
-#if !V8_TARGET_ARCH_PPC64
-      Register dst_hi,
-#endif
       Register dst, DoubleRegister src);
   void MovIntToFloat(DoubleRegister dst, Register src, Register scratch);
   void MovFloatToInt(Register dst, DoubleRegister src, DoubleRegister scratch);
@@ -865,12 +841,7 @@ class V8_EXPORT_PRIVATE MacroAssembler : public MacroAssemblerBase {
       // Prefer faster andi when applicable.
       andi(dst, src, Operand(((1 << width) - 1) << rangeEnd));
     } else {
-#if V8_TARGET_ARCH_PPC64
       rldicl(dst, src, rotate, kBitsPerSystemPointer - width, rc);
-#else
-      rlwinm(dst, src, rotate, kBitsPerSystemPointer - width,
-             kBitsPerSystemPointer - 1, rc);
-#endif
     }
   }
 
@@ -939,21 +910,12 @@ class V8_EXPORT_PRIVATE MacroAssembler : public MacroAssemblerBase {
   void LoadFeedbackVector(Register dst, Register closure, Register scratch,
                           Label* fbv_undef);
 
-#if V8_TARGET_ARCH_PPC64
   inline void TestIfInt32(Register value, Register scratch,
                           CRegister cr = cr7) {
     // High bits must be identical to fit into an 32-bit integer
     extsw(scratch, value);
     CmpS64(scratch, value, cr);
   }
-#else
-  inline void TestIfInt32(Register hi_word, Register lo_word, Register scratch,
-                          CRegister cr = cr7) {
-    // High bits must be identical to fit into an 32-bit integer
-    srawi(scratch, lo_word, 31);
-    CmpS64(scratch, hi_word, cr);
-  }
-#endif
 
   // Overflow handling functions.
   // Usage: call the appropriate arithmetic function and then call one of the
@@ -995,14 +957,28 @@ class V8_EXPORT_PRIVATE MacroAssembler : public MacroAssemblerBase {
   }
 
   // Convenience functions to call/jmp to the code of a JSFunction object.
-  void CallJSFunction(Register function_object, Register scratch);
+  void CallJSFunction(Register function_object, uint16_t argument_count,
+                      Register scratch);
   void JumpJSFunction(Register function_object, Register scratch,
                       JumpMode jump_mode = JumpMode::kJump);
+#ifdef V8_ENABLE_LEAPTIERING
+  void CallJSDispatchEntry(JSDispatchHandle dispatch_handle,
+                           uint16_t argument_count);
+#endif
+#ifdef V8_ENABLE_WEBASSEMBLY
+  void ResolveWasmCodePointer(Register target);
+  void CallWasmCodePointer(Register target,
+                           CallJumpMode call_jump_mode = CallJumpMode::kCall);
+  void LoadWasmCodePointer(Register dst, MemOperand src);
+#endif
 
   // Generates an instruction sequence s.t. the return address points to the
   // instruction following the call.
   // The return address on the stack is used by frame iteration.
   void StoreReturnAddressAndCall(Register target);
+
+  // Enforce platform specific stack alignment.
+  void EnforceStackAlignment();
 
   // Control-flow integrity:
 
@@ -1121,6 +1097,9 @@ class V8_EXPORT_PRIVATE MacroAssembler : public MacroAssemblerBase {
   void StoreTaggedField(const Register& value,
                         const MemOperand& dst_field_operand,
                         const Register& scratch = no_reg);
+
+  void Zero(const MemOperand& dest);
+  void Zero(const MemOperand& dest1, const MemOperand& dest2);
 
   void DecompressTaggedSigned(Register destination, MemOperand field_operand);
   void DecompressTaggedSigned(Register destination, Register src);
@@ -1915,8 +1894,7 @@ class V8_EXPORT_PRIVATE MacroAssembler : public MacroAssemblerBase {
 
   // Helper functions for generating invokes.
   void InvokePrologue(Register expected_parameter_count,
-                      Register actual_parameter_count, Label* done,
-                      InvokeType type);
+                      Register actual_parameter_count, InvokeType type);
 
   DISALLOW_IMPLICIT_CONSTRUCTORS(MacroAssembler);
 };

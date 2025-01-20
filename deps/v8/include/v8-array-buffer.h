@@ -10,6 +10,7 @@
 #include <memory>
 
 #include "v8-local-handle.h"  // NOLINT(build/include_directory)
+#include "v8-memory-span.h"   // NOLINT(build/include_directory)
 #include "v8-object.h"        // NOLINT(build/include_directory)
 #include "v8config.h"         // NOLINT(build/include_directory)
 
@@ -82,18 +83,6 @@ class V8_EXPORT BackingStore : public v8::internal::BackingStoreBase {
    * internal BackingStore object.
    */
   void operator delete(void* ptr) { ::operator delete(ptr); }
-
-  /**
-   * Wrapper around ArrayBuffer::Allocator::Reallocate that preserves IsShared.
-   * Assumes that the backing_store was allocated by the ArrayBuffer allocator
-   * of the given isolate.
-   */
-  V8_DEPRECATED(
-      "Reallocate is unsafe, please do not use. Please allocate a new "
-      "BackingStore and copy instead.")
-  static std::unique_ptr<BackingStore> Reallocate(
-      v8::Isolate* isolate, std::unique_ptr<BackingStore> backing_store,
-      size_t byte_length);
 
   /**
    * This callback is used only if the memory block for a BackingStore cannot be
@@ -172,23 +161,6 @@ class V8_EXPORT ArrayBuffer : public Object {
     virtual void Free(void* data, size_t length) = 0;
 
     /**
-     * Reallocate the memory block of size |old_length| to a memory block of
-     * size |new_length| by expanding, contracting, or copying the existing
-     * memory block. If |new_length| > |old_length|, then the new part of
-     * the memory must be initialized to zeros. Return nullptr if reallocation
-     * is not successful.
-     *
-     * The caller guarantees that the memory block was previously allocated
-     * using Allocate or AllocateUninitialized.
-     *
-     * The default implementation allocates a new block and copies data.
-     */
-    V8_DEPRECATED(
-        "Reallocate is unsafe, please do not use. Please allocate new memory "
-        "and copy instead.")
-    virtual void* Reallocate(void* data, size_t old_length, size_t new_length);
-
-    /**
      * ArrayBuffer allocation mode. kNormal is a malloc/free style allocation,
      * while kReservation is for larger allocations with the ability to set
      * access permissions.
@@ -216,6 +188,18 @@ class V8_EXPORT ArrayBuffer : public Object {
    * Maximum length in bytes.
    */
   size_t MaxByteLength() const;
+
+  /**
+   * Attempt to create a new ArrayBuffer. Allocate |byte_length| bytes.
+   * Allocated memory will be owned by a created ArrayBuffer and
+   * will be deallocated when it is garbage-collected,
+   * unless the object is externalized. If allocation fails, the Maybe
+   * returned will be empty.
+   */
+  static MaybeLocal<ArrayBuffer> MaybeNew(
+      Isolate* isolate, size_t byte_length,
+      BackingStoreInitializationMode initialization_mode =
+          BackingStoreInitializationMode::kZeroInitialized);
 
   /**
    * Create a new ArrayBuffer. Allocate |byte_length| bytes, which are either
@@ -393,6 +377,16 @@ class V8_EXPORT ArrayBufferView : public Object {
    * Returns the number of bytes actually written.
    */
   size_t CopyContents(void* dest, size_t byte_length);
+
+  /**
+   * Returns the contents of the ArrayBufferView's buffer as a MemorySpan. If
+   * the contents are on the V8 heap, they get copied into `storage`. Otherwise
+   * a view into the off-heap backing store is returned. The provided storage
+   * should be at least as large as the maximum on-heap size of a TypedArray,
+   * was defined in gn with `typed_array_max_size_in_heap`. The default value is
+   * 64 bytes.
+   */
+  v8::MemorySpan<uint8_t> GetContents(v8::MemorySpan<uint8_t> storage);
 
   /**
    * Returns true if ArrayBufferView's backing ArrayBuffer has already been

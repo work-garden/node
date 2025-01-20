@@ -11,8 +11,10 @@
 const assert = require('assert');
 const sinon = require('sinon');
 
-const exceptions = require('../exceptions.js');
 const corpus = require('../corpus.js');
+const exceptions = require('../exceptions.js');
+const helpers = require('./helpers.js');
+const sourceHelpers = require('../source_helpers.js');
 
 const sandbox = sinon.createSandbox();
 
@@ -20,7 +22,7 @@ function testSoftSkipped(count, softSkipped, paths) {
   sandbox.stub(exceptions, 'getSoftSkipped').callsFake(() => {
     return softSkipped;
   });
-  const mjsunit = new corpus.Corpus('test_data', 'mjsunit_softskipped');
+  const mjsunit = corpus.create('test_data', 'mjsunit_softskipped');
   const cases = mjsunit.getRandomTestcasePaths(count);
   assert.deepEqual(paths, cases);
 }
@@ -96,7 +98,7 @@ describe('Loading corpus', () => {
     ];
     sandbox.stub(exceptions, 'getGeneratedSoftSkipped').callsFake(
         () => { return new Set(generatedSoftSkipped); });
-    const mjsunit = new corpus.Corpus('test_data' , 'mjsunit_softskipped');
+    const mjsunit = corpus.create('test_data' , 'mjsunit_softskipped');
     assert.deepEqual(
         ['mjsunit_softskipped/object-literal.js',
          'mjsunit_softskipped/regress/binaryen-123.js'],
@@ -109,5 +111,19 @@ describe('Loading corpus', () => {
          'mjsunit_softskipped/object-literal.js',
          'mjsunit_softskipped/regress/binaryen-123.js'],
         Array.from(mjsunit.relFiles()));
+  });
+});
+
+
+describe('Fuzzilli corpus', () => {
+  afterEach(() => {
+    sandbox.restore();
+  });
+
+  it('loads sources with flags', () => {
+    const fuzzilli = corpus.create(helpers.BASE_DIR, 'fuzzilli');
+    const source = sourceHelpers.loadSource(
+        fuzzilli, 'fuzzilli/fuzzdir-1/corpus/program_1.js');
+    assert.deepEqual(['--fuzzilli-flag1', '--fuzzilli-flag2'], source.flags);
   });
 });

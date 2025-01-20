@@ -9,7 +9,9 @@
 #include "src/common/ptr-compr-inl.h"
 #include "src/execution/isolate.h"
 #include "src/heap/code-range.h"
+#include "src/heap/read-only-spaces.h"
 #include "src/heap/trusted-range.h"
+#include "src/sandbox/code-pointer-table-inl.h"
 #include "src/sandbox/sandbox.h"
 #include "src/utils/memcopy.h"
 #include "src/utils/utils.h"
@@ -27,6 +29,8 @@ void IsolateGroup::set_current_non_inlined(IsolateGroup* group) {
   current_ = group;
 }
 #endif  // V8_COMPRESS_POINTERS_IN_MULTIPLE_CAGES
+
+IsolateGroup* IsolateGroup::default_isolate_group_ = nullptr;
 
 #ifdef V8_COMPRESS_POINTERS
 struct PtrComprCageReservationParams
@@ -60,17 +64,10 @@ struct PtrComprCageReservationParams
 };
 #endif  // V8_COMPRESS_POINTERS
 
-#ifndef V8_COMPRESS_POINTERS_IN_MULTIPLE_CAGES
-// static
-IsolateGroup* IsolateGroup::GetProcessWideIsolateGroup() {
-  static ::v8::base::LeakyObject<IsolateGroup> global_isolate_group_;
-  return global_isolate_group_.get();
-}
-#endif  // V8_COMPRESS_POINTERS_IN_MULTIPLE_CAGES
-
 IsolateGroup::IsolateGroup() {}
 IsolateGroup::~IsolateGroup() {
   DCHECK_EQ(reference_count_.load(), 0);
+  DCHECK_EQ(isolate_count_.load(), 0);
   // If pointer compression is enabled but the external code space is disabled,
   // the pointer cage's page allocator is used for the CodeRange, whose
   // destructor calls it via VirtualMemory::Free.  Therefore we explicitly clear
@@ -80,9 +77,10 @@ IsolateGroup::~IsolateGroup() {
 }
 
 #ifdef V8_ENABLE_SANDBOX
-void IsolateGroup::Initialize(Sandbox* sandbox) {
+void IsolateGroup::Initialize(bool process_wide, Sandbox* sandbox) {
   DCHECK(!reservation_.IsReserved());
   CHECK(sandbox->is_initialized());
+  process_wide_ = process_wide;
   PtrComprCageReservationParams params;
   Address base = sandbox->address_space()->AllocatePages(
     sandbox->base(), params.reservation_size, params.base_alignment,
@@ -100,10 +98,18 @@ void IsolateGroup::Initialize(Sandbox* sandbox) {
   pointer_compression_cage_ = &reservation_;
   trusted_pointer_compression_cage_ =
       TrustedRange::EnsureProcessWideTrustedRange(kMaximalTrustedRangeSize);
+  sandbox_ = sandbox;
+
+  code_pointer_table()->Initialize();
+
+#ifdef V8_ENABLE_LEAPTIERING
+  js_dispatch_table()->Initialize();
+#endif  // V8_ENABLE_LEAPTIERING
 }
 #elif defined(V8_COMPRESS_POINTERS)
-void IsolateGroup::Initialize() {
+void IsolateGroup::Initialize(bool process_wide) {
   DCHECK(!reservation_.IsReserved());
+  process_wide_ = process_wide;
   PtrComprCageReservationParams params;
   if (!reservation_.InitReservation(params)) {
     V8::FatalProcessOutOfMemory(
@@ -114,22 +120,32 @@ void IsolateGroup::Initialize() {
   page_allocator_ = reservation_.page_allocator();
   pointer_compression_cage_ = &reservation_;
   trusted_pointer_compression_cage_ = &reservation_;
+#ifdef V8_ENABLE_LEAPTIERING
+  js_dispatch_table()->Initialize();
+#endif  // V8_ENABLE_LEAPTIERING
 }
 #else   // !V8_COMPRESS_POINTERS
-void IsolateGroup::Initialize() {
+void IsolateGroup::Initialize(bool process_wide) {
+  process_wide_ = process_wide;
   page_allocator_ = GetPlatformPageAllocator();
+#ifdef V8_ENABLE_LEAPTIERING
+  js_dispatch_table()->Initialize();
+#endif  // V8_ENABLE_LEAPTIERING
 }
 #endif  // V8_ENABLE_SANDBOX
 
 // static
 void IsolateGroup::InitializeOncePerProcess() {
-#ifndef V8_COMPRESS_POINTERS_IN_MULTIPLE_CAGES
-  IsolateGroup* group = GetProcessWideIsolateGroup();
+  static base::LeakyObject<IsolateGroup> default_isolate_group;
+  default_isolate_group_ = default_isolate_group.get();
 
+  IsolateGroup* group = GetDefault();
+
+  DCHECK_NULL(group->page_allocator_);
 #ifdef V8_ENABLE_SANDBOX
-  group->Initialize(GetProcessWideSandbox());
+  group->Initialize(true, Sandbox::GetDefault());
 #else
-  group->Initialize();
+  group->Initialize(true);
 #endif
   CHECK_NOT_NULL(group->page_allocator_);
 
@@ -142,15 +158,30 @@ void IsolateGroup::InitializeOncePerProcess() {
   // the code cage base will be set accordingly.
   ExternalCodeCompressionScheme::InitBase(V8HeapCompressionScheme::base());
 #endif  // V8_EXTERNAL_CODE_SPACE
-#endif  // !V8_COMPRESS_POINTERS_IN_MULTIPLE_CAGES
+#ifdef V8_COMPRESS_POINTERS_IN_MULTIPLE_CAGES
+  IsolateGroup::set_current(group);
+#endif
+}
+
+void IsolateGroup::Release() {
+  DCHECK_LT(0, reference_count_.load());
+#ifdef V8_ENABLE_SANDBOX
+  Sandbox* sandbox = sandbox_;
+#endif
+  if (--reference_count_ == 0) {
+    delete this;
+#ifdef V8_ENABLE_SANDBOX
+    sandbox->TearDown();
+#endif
+  }
 }
 
 namespace {
 void InitCodeRangeOnce(std::unique_ptr<CodeRange>* code_range_member,
-                       v8::PageAllocator* page_allocator,
-                       size_t requested_size) {
+                       v8::PageAllocator* page_allocator, size_t requested_size,
+                       bool immutable) {
   CodeRange* code_range = new CodeRange();
-  if (!code_range->InitReservation(page_allocator, requested_size)) {
+  if (!code_range->InitReservation(page_allocator, requested_size, immutable)) {
     V8::FatalProcessOutOfMemory(
         nullptr, "Failed to reserve virtual memory for CodeRange");
   }
@@ -167,23 +198,42 @@ void InitCodeRangeOnce(std::unique_ptr<CodeRange>* code_range_member,
 
 CodeRange* IsolateGroup::EnsureCodeRange(size_t requested_size) {
   base::CallOnce(&init_code_range_, InitCodeRangeOnce, &code_range_,
-                 page_allocator_, requested_size);
+                 page_allocator_, requested_size, process_wide_);
   return code_range_.get();
+}
+
+void IsolateGroup::ClearSharedSpaceIsolate() {
+  DCHECK_EQ(0, IsolateCount());
+  DCHECK(has_shared_space_isolate());
+  shared_space_isolate_ = nullptr;
+}
+
+void IsolateGroup::ClearReadOnlyArtifacts() {
+  DCHECK_EQ(0, IsolateCount());
+  read_only_artifacts_.reset();
+}
+
+ReadOnlyArtifacts* IsolateGroup::InitializeReadOnlyArtifacts() {
+  DCHECK(!read_only_artifacts_);
+  read_only_artifacts_ = std::make_unique<ReadOnlyArtifacts>();
+  return read_only_artifacts_.get();
 }
 
 // static
 IsolateGroup* IsolateGroup::New() {
+  if (!CanCreateNewGroups()) {
+    FATAL(
+        "Creation of new isolate groups requires enabling "
+        "multiple pointer compression cages at build-time");
+  }
+
   IsolateGroup* group = new IsolateGroup;
-
-#ifdef V8_COMPRESS_POINTERS_IN_MULTIPLE_CAGES
-  static_assert(!V8_ENABLE_SANDBOX_BOOL);
-  group->Initialize();
+#ifdef V8_ENABLE_SANDBOX
+  Sandbox* sandbox = Sandbox::New(GetPlatformVirtualAddressSpace());
+  group->Initialize(false, sandbox);
 #else
-  FATAL(
-      "Creation of new isolate groups requires enabling "
-      "multiple pointer compression cages at build-time");
+  group->Initialize(false);
 #endif
-
   CHECK_NOT_NULL(group->page_allocator_);
   ExternalReferenceTable::InitializeOncePerIsolateGroup(
       group->external_ref_table());
@@ -191,19 +241,10 @@ IsolateGroup* IsolateGroup::New() {
 }
 
 // static
-IsolateGroup* IsolateGroup::AcquireGlobal() {
-#ifdef V8_COMPRESS_POINTERS_IN_MULTIPLE_CAGES
-  return nullptr;
-#else
-  return GetProcessWideIsolateGroup()->Acquire();
-#endif  // V8_COMPRESS_POINTERS_IN_MULTIPLE_CAGES
-}
-
-// static
-void IsolateGroup::ReleaseGlobal() {
-#ifndef V8_COMPRESS_POINTERS_IN_MULTIPLE_CAGES
-  IsolateGroup *group = GetProcessWideIsolateGroup();
+void IsolateGroup::ReleaseDefault() {
+  IsolateGroup* group = GetDefault();
   CHECK_EQ(group->reference_count_.load(), 1);
+  CHECK(!group->has_shared_space_isolate());
   group->page_allocator_ = nullptr;
   group->code_range_.reset();
   group->init_code_range_ = base::ONCE_STATE_UNINITIALIZED;
@@ -213,7 +254,10 @@ void IsolateGroup::ReleaseGlobal() {
   DCHECK(group->reservation_.IsReserved());
   group->reservation_.Free();
 #endif  // V8_COMPRESS_POINTERS
-#endif  // V8_COMPRESS_POINTERS_IN_MULTIPLE_CAGES
+
+#ifdef V8_ENABLE_LEAPTIERING
+  group->js_dispatch_table_.TearDown();
+#endif  // V8_ENABLE_LEAPTIERING
 }
 
 }  // namespace internal

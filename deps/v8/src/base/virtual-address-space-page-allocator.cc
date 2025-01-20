@@ -20,7 +20,7 @@ void* VirtualAddressSpacePageAllocator::AllocatePages(
 }
 
 bool VirtualAddressSpacePageAllocator::FreePages(void* ptr, size_t size) {
-  MutexGuard guard(&mutex_);
+  SpinningMutexGuard guard(&mutex_);
   Address address = reinterpret_cast<Address>(ptr);
   // Was this allocation resized previously? If so, use the original size.
   auto result = resized_allocations_.find(address);
@@ -43,7 +43,7 @@ bool VirtualAddressSpacePageAllocator::ReleasePages(void* ptr, size_t size,
   // track of that.
   DCHECK_LE(new_size, size);
 
-  MutexGuard guard(&mutex_);
+  SpinningMutexGuard guard(&mutex_);
   // Will fail if the allocation was resized previously, which is desired.
   Address address = reinterpret_cast<Address>(ptr);
   resized_allocations_.insert({address, size});
@@ -71,6 +71,10 @@ bool VirtualAddressSpacePageAllocator::DiscardSystemPages(void* address,
 bool VirtualAddressSpacePageAllocator::DecommitPages(void* address,
                                                      size_t size) {
   return vas_->DecommitPages(reinterpret_cast<Address>(address), size);
+}
+
+bool VirtualAddressSpacePageAllocator::SealPages(void* address, size_t size) {
+  return false;
 }
 
 }  // namespace base

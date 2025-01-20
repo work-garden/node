@@ -145,7 +145,7 @@ class TokensCompareOutput : public Comparator::Output {
 // never has terminating new line character.
 class LineEndsWrapper {
  public:
-  explicit LineEndsWrapper(Isolate* isolate, Handle<String> string)
+  explicit LineEndsWrapper(Isolate* isolate, DirectHandle<String> string)
       : ends_array_(String::CalculateLineEnds(isolate, string, false)),
         string_len_(string->length()) {}
   int length() {
@@ -514,11 +514,11 @@ class CollectFunctionLiterals final
 };
 
 bool ParseScript(Isolate* isolate, Handle<Script> script, ParseInfo* parse_info,
-                 MaybeHandle<ScopeInfo> outer_scope_info, bool compile_as_well,
-                 std::vector<FunctionLiteral*>* literals,
+                 MaybeDirectHandle<ScopeInfo> outer_scope_info,
+                 bool compile_as_well, std::vector<FunctionLiteral*>* literals,
                  debug::LiveEditResult* result) {
   v8::TryCatch try_catch(reinterpret_cast<v8::Isolate*>(isolate));
-  Handle<SharedFunctionInfo> shared;
+  DirectHandle<SharedFunctionInfo> shared;
   bool success = false;
   if (compile_as_well) {
     success = Compiler::CompileForLiveEdit(parse_info, script, outer_scope_info,
@@ -852,7 +852,7 @@ void LiveEdit::PatchScript(Isolate* isolate, Handle<Script> script,
   flags.set_is_eager(true);
   flags.set_is_reparse(true);
   ParseInfo parse_info(isolate, flags, &compile_state, &reusable_state);
-  MaybeHandle<ScopeInfo> outer_scope_info =
+  MaybeDirectHandle<ScopeInfo> outer_scope_info =
       DetermineOuterScopeInfo(isolate, script);
   std::vector<FunctionLiteral*> literals;
   if (!ParseScript(isolate, script, &parse_info, outer_scope_info, false,
@@ -987,15 +987,15 @@ void LiveEdit::PatchScript(Isolate* isolate, Handle<Script> script,
     isolate->debug()->DeoptimizeFunction(sfi);
     isolate->compilation_cache()->Remove(sfi);
     for (auto& js_function : data->js_functions) {
-#ifdef V8_ENABLE_LEAPTIERING
-      js_function->initialize_dispatch_handle(
-          isolate, new_sfi->internal_formal_parameter_count_with_receiver());
-#endif
-      js_function->set_shared(*new_sfi);
-      js_function->set_code(js_function->shared()->GetCode(isolate));
-
       js_function->set_raw_feedback_cell(
           *isolate->factory()->many_closures_cell());
+#ifdef V8_ENABLE_LEAPTIERING
+      js_function->AllocateDispatchHandle(
+          isolate, new_sfi->internal_formal_parameter_count_with_receiver(),
+          new_sfi->GetCode(isolate));
+#endif
+      js_function->set_shared(*new_sfi);
+
       if (!js_function->is_compiled(isolate)) continue;
       IsCompiledScope is_compiled_scope(
           js_function->shared()->is_compiled_scope(isolate));
@@ -1013,7 +1013,7 @@ void LiveEdit::PatchScript(Isolate* isolate, Handle<Script> script,
       if (!IsSharedFunctionInfo(constants->get(i))) continue;
       Tagged<SharedFunctionInfo> inner_sfi =
           Cast<SharedFunctionInfo>(constants->get(i));
-      // See if there is a mapping from this function's start position to a
+      // See if there is a mapping from this function's start position to an
       // unchanged function's id.
       auto unchanged_it =
           start_position_to_unchanged_id.find(inner_sfi->StartPosition());

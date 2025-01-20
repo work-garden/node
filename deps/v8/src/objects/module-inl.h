@@ -39,7 +39,7 @@ ACCESSORS(SourceTextModule, async_parent_modules, Tagged<ArrayList>,
 BIT_FIELD_ACCESSORS(ModuleRequest, flags, position, ModuleRequest::PositionBits)
 
 inline void ModuleRequest::set_phase(ModuleImportPhase phase) {
-  DCHECK_GE(PhaseBit::kMax, phase);
+  DCHECK(PhaseBit::is_valid(phase));
   int hints = flags();
   hints = PhaseBit::update(hints, phase);
   set_flags(hints);
@@ -58,8 +58,6 @@ struct Module::Hash {
 Tagged<SourceTextModuleInfo> SourceTextModule::info() const {
   return GetSharedFunctionInfo()->scope_info()->ModuleDescriptorInfo();
 }
-
-OBJECT_CONSTRUCTORS_IMPL(SourceTextModuleInfo, FixedArray)
 
 Tagged<FixedArray> SourceTextModuleInfo::module_requests() const {
   return Cast<FixedArray>(get(kModuleRequestsIndex));

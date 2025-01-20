@@ -73,6 +73,8 @@
 #define DEFINE_GENERIC_IMPLICATION(whenflag, statement) \
   if (v8_flags.whenflag) statement;
 
+#define DEFINE_REQUIREMENT(statement) CHECK(statement);
+
 #define DEFINE_NEG_VALUE_IMPLICATION(whenflag, thenflag, value)    \
   changed |= TriggerImplication(!v8_flags.whenflag, "!" #whenflag, \
                                 &v8_flags.thenflag, #thenflag, value, false);
@@ -142,6 +144,10 @@
 
 #ifndef DEFINE_DISABLE_FLAG_IMPLICATION
 #define DEFINE_DISABLE_FLAG_IMPLICATION(whenflag, thenflag)
+#endif
+
+#ifndef DEFINE_REQUIREMENT
+#define DEFINE_REQUIREMENT(statement)
 #endif
 
 #ifndef DEBUG_BOOL
@@ -267,29 +273,18 @@ DEFINE_BOOL(js_shipping, true, "enable all shipped JavaScript features")
 //
 // TODO(v8:14214): Remove --harmony flags once transition is complete.
 #define HARMONY_INPROGRESS_BASE(V)                                             \
-  V(harmony_weak_refs_with_cleanup_some,                                       \
-    "harmony weak references with FinalizationRegistry.prototype.cleanupSome") \
   V(harmony_temporal, "Temporal")                                              \
   V(harmony_shadow_realm, "harmony ShadowRealm")                               \
-  V(harmony_struct, "harmony structs, shared structs, and shared arrays")      \
-  V(harmony_import_assertions, "harmony import assertions (deprecated)")
+  V(harmony_struct, "harmony structs, shared structs, and shared arrays")
 
 #define JAVASCRIPT_INPROGRESS_FEATURES_BASE(V)                               \
-  V(js_explicit_resource_management, "explicit resource management")         \
-  V(js_float16array,                                                         \
-    "Float16Array, Math.f16round, DataView.getFloat16, DataView.setFloat16") \
   V(js_decorators, "decorators")                                             \
   V(js_source_phase_imports, "source phase imports")
 
 #ifdef V8_INTL_SUPPORT
-#define HARMONY_INPROGRESS(V)                                       \
-  HARMONY_INPROGRESS_BASE(V)                                        \
-  V(harmony_intl_best_fit_matcher, "Intl BestFitMatcher")           \
-  /* Following two flags should ship the same time but may stage */ \
-  /* differently . */                                               \
-  V(harmony_remove_intl_locale_info_getters,                        \
-    "Remove Obsoleted Intl Locale Info getters")
-
+#define HARMONY_INPROGRESS(V) \
+  HARMONY_INPROGRESS_BASE(V)  \
+  V(harmony_intl_best_fit_matcher, "Intl BestFitMatcher")
 #define JAVASCRIPT_INPROGRESS_FEATURES(V) JAVASCRIPT_INPROGRESS_FEATURES_BASE(V)
 #else
 #define HARMONY_INPROGRESS(V) HARMONY_INPROGRESS_BASE(V)
@@ -298,12 +293,16 @@ DEFINE_BOOL(js_shipping, true, "enable all shipped JavaScript features")
 
 // Features that are complete (but still behind the --harmony flag).
 #define HARMONY_STAGED_BASE(V)
-#define JAVASCRIPT_STAGED_FEATURES_BASE(V) V(js_atomics_pause, "Atomics.pause")
+#define JAVASCRIPT_STAGED_FEATURES_BASE(V)                           \
+  V(js_explicit_resource_management, "explicit resource management") \
+  V(js_float16array,                                                 \
+    "Float16Array, Math.f16round, DataView.getFloat16, DataView.setFloat16")
 
 #ifdef V8_INTL_SUPPORT
-#define HARMONY_STAGED(V)                                    \
-  HARMONY_STAGED_BASE(V)                                     \
-  V(harmony_intl_locale_info_func, "Intl Locale Info API as functions")
+#define HARMONY_STAGED(V)                    \
+  HARMONY_STAGED_BASE(V)                     \
+  V(harmony_remove_intl_locale_info_getters, \
+    "Remove Obsoleted Intl Locale Info getters")
 #define JAVASCRIPT_STAGED_FEATURES(V) JAVASCRIPT_STAGED_FEATURES_BASE(V)
 #else
 #define HARMONY_STAGED(V) HARMONY_STAGED_BASE(V)
@@ -319,12 +318,12 @@ DEFINE_BOOL(js_shipping, true, "enable all shipped JavaScript features")
 #define JAVASCRIPT_SHIPPING_FEATURES_BASE(V)                           \
   V(js_regexp_duplicate_named_groups, "RegExp duplicate named groups") \
   V(js_regexp_modifiers, "RegExp modifiers")                           \
-  V(js_promise_try, "Promise.try")
+  V(js_promise_try, "Promise.try")                                     \
+  V(js_atomics_pause, "Atomics.pause")                                 \
+  V(js_error_iserror, "Error.isError")
 
 #ifdef V8_INTL_SUPPORT
-#define HARMONY_SHIPPING(V) \
-  HARMONY_SHIPPING_BASE(V)  \
-  V(harmony_intl_duration_format, "Intl DurationFormat API")
+#define HARMONY_SHIPPING(V) HARMONY_SHIPPING_BASE(V)
 #define JAVASCRIPT_SHIPPING_FEATURES(V) JAVASCRIPT_SHIPPING_FEATURES_BASE(V)
 #else
 #define HARMONY_SHIPPING(V) HARMONY_SHIPPING_BASE(V)
@@ -391,12 +390,6 @@ DEFINE_BOOL(icu_timezone_data, true, "get information about timezones from ICU")
 #define V8_LAZY_SOURCE_POSITIONS_BOOL false
 #endif
 
-#ifdef V8_SHARED_RO_HEAP
-#define V8_SHARED_RO_HEAP_BOOL true
-#else
-#define V8_SHARED_RO_HEAP_BOOL false
-#endif
-
 DEFINE_BOOL(stress_snapshot, false,
             "disables sharing of the read-only heap for testing")
 // Incremental marking is incompatible with the stress_snapshot mode;
@@ -420,26 +413,6 @@ DEFINE_BOOL(lite_mode, V8_LITE_MODE_BOOL,
 // Lite mode implies other flags to trade-off performance for memory.
 DEFINE_IMPLICATION(lite_mode, jitless)
 DEFINE_IMPLICATION(lite_mode, optimize_for_size)
-
-#ifdef V8_ENABLE_THIRD_PARTY_HEAP
-#define V8_ENABLE_THIRD_PARTY_HEAP_BOOL true
-#else
-#define V8_ENABLE_THIRD_PARTY_HEAP_BOOL false
-#endif
-
-DEFINE_NEG_IMPLICATION(enable_third_party_heap, inline_new)
-DEFINE_NEG_IMPLICATION(enable_third_party_heap, allocation_site_pretenuring)
-DEFINE_NEG_IMPLICATION(enable_third_party_heap, turbo_allocation_folding)
-DEFINE_NEG_IMPLICATION(enable_third_party_heap, concurrent_recompilation)
-DEFINE_NEG_IMPLICATION(enable_third_party_heap, script_streaming)
-DEFINE_NEG_IMPLICATION(enable_third_party_heap,
-                       parallel_compile_tasks_for_eager_toplevel)
-DEFINE_NEG_IMPLICATION(enable_third_party_heap, use_marking_progress_bar)
-DEFINE_NEG_IMPLICATION(enable_third_party_heap, move_object_start)
-DEFINE_NEG_IMPLICATION(enable_third_party_heap, concurrent_marking)
-
-DEFINE_BOOL_READONLY(enable_third_party_heap, V8_ENABLE_THIRD_PARTY_HEAP_BOOL,
-                     "Use third-party heap")
 
 #ifdef V8_ALLOCATION_FOLDING
 #define V8_ALLOCATION_FOLDING_BOOL true
@@ -509,6 +482,28 @@ DEFINE_BOOL_READONLY(direct_handle, V8_ENABLE_DIRECT_HANDLE_BOOL,
 // break the correctness of the GC.
 DEFINE_NEG_NEG_IMPLICATION(conservative_stack_scanning, direct_handle)
 
+DEFINE_EXPERIMENTAL_FEATURE(scavenger_pinning_objects,
+                            "Objects reachable from the native stack during "
+                            "scavenge will be pinned and "
+                            "won't move.")
+DEFINE_IMPLICATION(scavenger_pinning_objects, separate_gc_phases)
+DEFINE_BOOL(stress_scavenger_pinning_objects, false,
+            "Treat some precise refernces as conservative references to stress "
+            "test object pinning in Scavenger")
+DEFINE_IMPLICATION(stress_scavenger_pinning_objects, scavenger_pinning_objects)
+DEFINE_BOOL(stress_scavenger_pinning_objects_random, false,
+            "Enables random stressing of object pinning in Scavenger, such "
+            "that each GC would randomly pick a subset of the precise "
+            "references to treat conservatively")
+DEFINE_IMPLICATION(stress_scavenger_pinning_objects_random,
+                   stress_scavenger_pinning_objects)
+
+DEFINE_EXPERIMENTAL_FEATURE(scavenger_precise_pinning_objects,
+                            "Objects reachable from handles during "
+                            "scavenge will be pinned and "
+                            "won't move.")
+DEFINE_IMPLICATION(scavenger_precise_pinning_objects, separate_gc_phases)
+
 #ifdef V8_ENABLE_LOCAL_OFF_STACK_CHECK
 #define V8_ENABLE_LOCAL_OFF_STACK_CHECK_BOOL true
 #else
@@ -566,11 +561,14 @@ DEFINE_BOOL(maglev_inlining, true,
             "enable inlining in the maglev optimizing compiler")
 DEFINE_BOOL(maglev_loop_peeling, true,
             "enable loop peeling in the maglev optimizing compiler")
-DEFINE_BOOL(maglev_optimistic_peeled_loops, false,
-            "enable speculation on loop state using peeling as fallback in the "
+DEFINE_BOOL(maglev_optimistic_peeled_loops, true,
+            "enable aggressive optimizations for loops (loop SPeeling) in the "
             "maglev optimizing compiler")
-DEFINE_INT(maglev_loop_peeling_max_size, 200,
+DEFINE_INT(maglev_loop_peeling_max_size, 400,
            "max loop size for loop peeling in the maglev optimizing compiler")
+DEFINE_INT(
+    maglev_loop_peeling_max_size_cumulative, 900,
+    "max cumulative size for loop peeling in the maglev optimizing compiler")
 DEFINE_BOOL(maglev_deopt_data_on_background, true,
             "Generate deopt data on background thread")
 DEFINE_BOOL(maglev_build_code_on_background, true,
@@ -582,7 +580,6 @@ DEFINE_BOOL(maglev_destroy_on_background, true,
 DEFINE_BOOL(maglev_inline_api_calls, false,
             "Inline CallApiCallback builtin into generated code")
 DEFINE_EXPERIMENTAL_FEATURE(maglev_licm, "loop invariant code motion")
-DEFINE_WEAK_IMPLICATION(maglev_future, maglev_optimistic_peeled_loops)
 DEFINE_WEAK_IMPLICATION(maglev_future, maglev_speculative_hoist_phi_untagging)
 DEFINE_WEAK_IMPLICATION(maglev_future, maglev_inline_api_calls)
 DEFINE_WEAK_IMPLICATION(maglev_future, maglev_escape_analysis)
@@ -630,6 +627,8 @@ DEFINE_EXPERIMENTAL_FEATURE(
 DEFINE_BOOL(maglev_cse, true, "common subexpression elimination")
 
 DEFINE_STRING(maglev_filter, "*", "optimization filter for the maglev compiler")
+DEFINE_STRING(maglev_print_filter, "*",
+              "filter for maglev's tracing/printing options")
 DEFINE_BOOL(maglev_assert, false, "insert extra assertion in maglev code")
 DEFINE_DEBUG_BOOL(maglev_assert_stack_size, true,
                   "insert stack size checks before every IR node")
@@ -694,6 +693,36 @@ DEFINE_BOOL_READONLY(dict_property_const_tracking,
 DEFINE_BOOL(const_tracking_let, true,
             "Use const tracking on top-level `let` variables")
 
+DEFINE_BOOL(script_context_mutable_heap_number, true,
+            "Use mutable heap numbers in script contexts")
+
+#if defined(V8_31BIT_SMIS_ON_64BIT_ARCH) || defined(V8_TARGET_ARCH_32_BIT)
+#define SUPPORT_SCRIPT_CONTEXT_MUTABLE_HEAP_INT32
+DEFINE_BOOL(script_context_mutable_heap_int32, true,
+            "Use mutable heap int32 number in script contexts")
+DEFINE_WEAK_IMPLICATION(script_context_mutable_heap_int32,
+                        script_context_mutable_heap_number)
+#else
+DEFINE_BOOL_READONLY(script_context_mutable_heap_int32, false,
+                     "Use mutable heap int32 number in script contexts")
+#endif
+
+DEFINE_BOOL(empty_context_extension_dep, true,
+            "Use compilation dependency to avoid dynamic checks for "
+            "non-empty context extensions")
+
+DEFINE_BOOL(json_stringify_fast_path, false, "Enable JSON.stringify fast-path")
+DEFINE_WEAK_IMPLICATION(future, json_stringify_fast_path)
+
+#ifdef V8_ENABLE_EXTENSIBLE_RO_SNAPSHOT
+DEFINE_BOOL(extensible_ro_snapshot, true,
+            "Whether custom embedder snapshots may extend ReadOnlySpace")
+#else
+DEFINE_BOOL_READONLY(
+    extensible_ro_snapshot, false,
+    "Whether custom embedder snapshots may extend ReadOnlySpace")
+#endif  // V8_ENABLE_EXTENSIBLE_RO_SNAPSHOT
+
 DEFINE_UINT(max_opt, 999,
             "Set the maximal optimisation tier: "
             "> 3 == any, 0 == ignition/interpreter, 1 == sparkplug/baseline, "
@@ -719,6 +748,12 @@ DEFINE_MAYBE_BOOL(
     battery_saver_mode,
     "Forces battery saver mode on or off, disregarding any dynamic signals. "
     "Battery saver tries to conserve overal cpu cycles spent.")
+
+DEFINE_MAYBE_BOOL(
+    memory_saver_mode,
+    "Forces memory saver mode on or off, disregarding any dynamic signals. "
+    "Memory saver tries to keep memory footprint low at the expense of extra "
+    "cpu cycles.")
 
 // Flags to experiment with the new efficiency mode
 DEFINE_BOOL(efficiency_mode_for_tiering_heuristics, true,
@@ -748,6 +783,7 @@ DEFINE_BOOL(jitless, V8_LITE_MODE_BOOL,
 // Jitless V8 has a few implications:
 // Field type tracking is only used by TurboFan.
 DEFINE_NEG_IMPLICATION(jitless, track_field_types)
+DEFINE_NEG_IMPLICATION(jitless, script_context_mutable_heap_number)
 // No code generation at runtime.
 DEFINE_IMPLICATION(jitless, regexp_interpret_all)
 DEFINE_NEG_IMPLICATION(jitless, turbofan)
@@ -779,6 +815,8 @@ DEFINE_NEG_IMPLICATION(disable_optimizing_compilers, validate_asm)
 #endif  // V8_ENABLE_WEBASSEMBLY
 // Field type tracking is only used by TurboFan, so can be disabled.
 DEFINE_NEG_IMPLICATION(disable_optimizing_compilers, track_field_types)
+DEFINE_NEG_IMPLICATION(disable_optimizing_compilers,
+                       script_context_mutable_heap_number)
 
 DEFINE_BOOL(memory_protection_keys, true,
             "protect code memory with PKU if available")
@@ -787,10 +825,12 @@ DEFINE_BOOL(assert_types, false,
             "generate runtime type assertions to test the typer")
 // TODO(tebbi): Support allocating types from background thread.
 DEFINE_NEG_IMPLICATION(assert_types, concurrent_recompilation)
+DEFINE_NEG_IMPLICATION(assert_types, concurrent_builtin_generation)
 DEFINE_EXPERIMENTAL_FEATURE(
     turboshaft_assert_types,
     "generate runtime type assertions to test the turboshaft type system")
 DEFINE_NEG_IMPLICATION(turboshaft_assert_types, concurrent_recompilation)
+DEFINE_NEG_IMPLICATION(turboshaft_assert_types, concurrent_builtin_generation)
 
 // Enable verification of SimplifiedLowering in debug builds.
 DEFINE_BOOL(verify_simplified_lowering, DEBUG_BOOL,
@@ -829,9 +869,20 @@ DEFINE_UINT(minor_ms_max_page_age, 4,
 DEFINE_UINT(minor_ms_max_new_space_capacity_mb, 72,
             "max new space capacity in MBs when using MinorMS. When pointer "
             "compression is disabled, twice the capacity is used.")
-DEFINE_UINT(scavenger_max_new_space_capacity_mb, 8,
+DEFINE_REQUIREMENT(v8_flags.minor_ms_max_new_space_capacity_mb > 0)
+
+#if defined(ANDROID)
+#define DEFAULT_SCAVENGER_MAX_NEW_SPACE_CAPACITY_MB 8
+#else
+#define DEFAULT_SCAVENGER_MAX_NEW_SPACE_CAPACITY_MB 32
+#endif
+DEFINE_UINT(scavenger_max_new_space_capacity_mb,
+            DEFAULT_SCAVENGER_MAX_NEW_SPACE_CAPACITY_MB,
             "max new space capacity in MBs when using Scavenger. When pointer "
             "compression is disabled, twice the capacity is used.")
+DEFINE_REQUIREMENT(v8_flags.scavenger_max_new_space_capacity_mb > 0)
+#undef DEFAULT_SCAVENGER_MAX_NEW_SPACE_CAPACITY_MB
+
 DEFINE_BOOL(trace_page_promotions, false, "trace page promotion decisions")
 DEFINE_BOOL(trace_pretenuring, false,
             "trace pretenuring decisions of HAllocate instructions")
@@ -842,8 +893,12 @@ DEFINE_BOOL(trace_block_coverage, false,
             "trace collected block coverage information")
 DEFINE_BOOL(trace_protector_invalidation, false,
             "trace protector cell invalidations")
-DEFINE_BOOL(decommit_pooled_pages, false,
+DEFINE_BOOL(decommit_pooled_pages, true,
             "decommit, rather than discard pooled pages")
+DEFINE_BOOL(
+    zero_unused_memory, false,
+    "Zero unused memory (except for memory which was discarded) on memory "
+    "reducing GCs.")
 
 #ifdef V8_MINORMS_STRING_SHORTCUTTING
 DEFINE_BOOL(minor_ms_shortcut_strings, false,
@@ -931,6 +986,9 @@ DEFINE_VALUE_IMPLICATION(jit_fuzzing, wasm_tiering_budget, 1)
 DEFINE_IMPLICATION(jit_fuzzing, wasm_inlining_ignore_call_counts)
 #endif  // V8_ENABLE_WEBASSEMBLY
 
+DEFINE_BOOL(use_std_math_pow, true,
+            "use std::pow instead of our custom implementation")
+
 // Flags for inline caching and feedback vectors.
 DEFINE_BOOL(use_ic, true, "use inline caching")
 DEFINE_BOOL(lazy_feedback_allocation, true, "Allocate feedback vectors lazily")
@@ -1009,7 +1067,7 @@ DEFINE_BOOL(baseline_batch_compilation, true, "batch compile Sparkplug code")
 DEFINE_BOOL_READONLY(concurrent_sparkplug, false,
                      "compile Sparkplug code in a background thread")
 #else
-DEFINE_BOOL(concurrent_sparkplug, false,
+DEFINE_BOOL(concurrent_sparkplug, ENABLE_SPARKPLUG_BY_DEFAULT,
             "compile Sparkplug code in a background thread")
 DEFINE_WEAK_IMPLICATION(future, concurrent_sparkplug)
 DEFINE_NEG_IMPLICATION(predictable, concurrent_sparkplug)
@@ -1042,9 +1100,11 @@ DEFINE_WEAK_IMPLICATION(trace_baseline, trace_baseline_batch_compilation)
 // Internalize into a shared string table in the shared isolate
 DEFINE_BOOL(shared_string_table, false, "internalize strings into shared table")
 DEFINE_IMPLICATION(harmony_struct, shared_string_table)
-DEFINE_EXPERIMENTAL_FEATURE(
-    always_use_string_forwarding_table,
-    "use string forwarding table instead of thin strings for all strings")
+DEFINE_IMPLICATION(shared_string_table, shared_heap)
+DEFINE_BOOL_READONLY(always_use_string_forwarding_table, false,
+                     "use string forwarding table instead of thin strings for "
+                     "all strings (experimental)")
+DEFINE_IMPLICATION(always_use_string_forwarding_table, experimental)
 // With --always-use-string-forwarding-table, we can have young generation
 // string entries in the forwarding table, requiring table updates when these
 // strings get promoted to old space. Parallel GCs in client isolates
@@ -1062,6 +1122,9 @@ DEFINE_SIZE_T(
     max_shared_heap_size, 0,
     "max size of the shared heap (in Mbytes); "
     "other heap size flags (e.g. max_shared_heap_size) take precedence")
+
+DEFINE_BOOL(concurrent_builtin_generation, false,
+            "generate builtins concurrently on separate threads in mksnapshot")
 
 // Flags for concurrent recompilation.
 DEFINE_BOOL(concurrent_recompilation, true,
@@ -1106,12 +1169,9 @@ DEFINE_INT(max_serializer_nesting, 25,
            "maximum levels for nesting child serializers")
 DEFINE_BOOL(trace_heap_broker_verbose, false,
             "trace the heap broker verbosely (all reports)")
-DEFINE_BOOL(trace_heap_broker_memory, false,
-            "trace the heap broker memory (refs analysis and zone numbers)")
 DEFINE_BOOL(trace_heap_broker, false,
             "trace the heap broker (reports on missing data only)")
 DEFINE_IMPLICATION(trace_heap_broker_verbose, trace_heap_broker)
-DEFINE_IMPLICATION(trace_heap_broker_memory, trace_heap_broker)
 DEFINE_IMPLICATION(trace_heap_broker, trace_pending_allocations)
 
 // Flags for stress-testing the compiler.
@@ -1142,11 +1202,13 @@ DEFINE_BOOL(turbo_wasm_address_reassociation, true,
 
 DEFINE_STRING(turbo_filter, "*", "optimization filter for TurboFan compiler")
 DEFINE_BOOL(trace_turbo, false, "trace generated TurboFan IR")
+DEFINE_NEG_IMPLICATION(trace_turbo, concurrent_builtin_generation)
 DEFINE_STRING(trace_turbo_path, nullptr,
               "directory to dump generated TurboFan IR to")
 DEFINE_STRING(trace_turbo_filter, "*",
               "filter for tracing turbofan compilation")
 DEFINE_BOOL(trace_turbo_graph, false, "trace generated TurboFan graphs")
+DEFINE_NEG_IMPLICATION(trace_turbo_graph, concurrent_builtin_generation)
 DEFINE_BOOL(trace_turbo_scheduled, false, "trace TurboFan IR with schedule")
 DEFINE_IMPLICATION(trace_turbo_scheduled, trace_turbo_graph)
 DEFINE_STRING(trace_turbo_file_prefix, "turbo",
@@ -1309,6 +1371,7 @@ DEFINE_BOOL(turbo_load_elimination, true, "enable load elimination in TurboFan")
 DEFINE_BOOL(trace_turbo_load_elimination, false,
             "trace TurboFan load elimination")
 DEFINE_BOOL(turbo_profiling, false, "enable basic block profiling in TurboFan")
+DEFINE_NEG_IMPLICATION(turbo_profiling, concurrent_builtin_generation)
 DEFINE_BOOL(turbo_profiling_verbose, false,
             "enable basic block profiling in TurboFan, and include each "
             "function's schedule and disassembly in the output")
@@ -1319,6 +1382,7 @@ DEFINE_STRING(
     "(requires that V8 was built with v8_enable_builtins_profiling=true)")
 DEFINE_BOOL(reorder_builtins, false,
             "enable builtin reordering when run mksnapshot.")
+DEFINE_NEG_IMPLICATION(reorder_builtins, concurrent_builtin_generation)
 
 DEFINE_BOOL(abort_on_bad_builtin_profile_data, false,
             "flag for mksnapshot, abort if builtins profile can't be applied")
@@ -1368,6 +1432,12 @@ DEFINE_BOOL(turbo_fast_api_calls, true, "enable fast API calls from TurboFan")
 DEFINE_BOOL(fast_api_allow_float_in_sim, false,
             "allow float parameters to be passed in simulator mode")
 
+// Float parameters in fast API calls don't work in the simulator in general,
+// only for some specially prepared test functions. With this flag implication
+// we want to make sure that the fuzzer does not enable float parameters also
+// for other tests, which would just lead to errors or crashes.
+DEFINE_NEG_IMPLICATION(fuzzing, fast_api_allow_float_in_sim)
+
 #ifdef V8_USE_ZLIB
 DEFINE_BOOL(turbo_compress_frame_translations, false,
             "compress deoptimization frame translations (experimental)")
@@ -1376,7 +1446,17 @@ DEFINE_BOOL_READONLY(
     turbo_compress_frame_translations, false,
     "compress deoptimization frame translations (experimental)")
 #endif  // V8_USE_ZLIB
-DEFINE_BOOL(turbo_inline_js_wasm_calls, true, "inline JS->Wasm calls")
+DEFINE_BOOL(
+    turbo_inline_js_wasm_calls, true,
+    "inline JS->Wasm calls (specifically: inline JS-to-Wasm wrappers and then "
+    "the body of the Wasm function, if applicable)")
+
+DEFINE_BOOL(turbo_optimize_inlined_js_wasm_wrappers, false,
+            "Run additional optimizations (especially load-elimination) on "
+            "inlined JS-to-Wasm wrappers")
+DEFINE_NEG_NEG_IMPLICATION(turbo_inline_js_wasm_calls,
+                           turbo_optimize_inlined_js_wasm_wrappers)
+DEFINE_WEAK_IMPLICATION(future, turbo_optimize_inlined_js_wasm_wrappers)
 
 DEFINE_BOOL(turbo_optimize_apply, true, "optimize Function.prototype.apply")
 DEFINE_BOOL(turbo_optimize_math_minmax, true,
@@ -1399,12 +1479,21 @@ DEFINE_BOOL(turboshaft_enable_debug_features, false,
             "enables Turboshaft's DebugPrint, StaticAssert and "
             "CheckTurboshaftTypeOf operations")
 #endif
-DEFINE_BOOL(turboshaft_wasm, false,
-            "enable TurboFan's Turboshaft phases for wasm")
-DEFINE_WEAK_IMPLICATION(future, turboshaft_wasm)
-DEFINE_BOOL(turboshaft_wasm_load_elimination, false,
+
+DEFINE_BOOL(turboshaft_wasm_load_elimination, true,
             "enable Turboshaft's WasmLoadElimination")
-DEFINE_WEAK_IMPLICATION(turboshaft_wasm, turboshaft_wasm_load_elimination)
+
+DEFINE_EXPERIMENTAL_FEATURE(
+    turboshaft_wasm_in_js_inlining,
+    "inline Wasm code into JS functions via Turboshaft (instead of via "
+    "TurboFan). Only the Wasm code is inlined in Turboshaft, the JS-to-Wasm "
+    "wrappers are still inlined in TurboFan. For controlling whether to inline "
+    "at all, see --turbo-inline-js-wasm-calls.")
+// Can't use Turboshaft Wasm-in-JS inlining without the Turboshaft JavaScript
+// pipeline. Note however, that this feature is independent of the Turboshaft
+// Wasm pipeline (since the inlinee gets compiled with the JS pipeline).
+DEFINE_IMPLICATION(turboshaft_wasm_in_js_inlining, turboshaft)
+DEFINE_IMPLICATION(turboshaft_wasm_in_js_inlining, turbo_inline_js_wasm_calls)
 
 DEFINE_BOOL(turboshaft_instruction_selection, true,
             "run instruction selection on Turboshaft IR directly")
@@ -1414,46 +1503,29 @@ DEFINE_BOOL(turboshaft_load_elimination, true,
 DEFINE_BOOL(turboshaft_loop_peeling, false, "enable Turboshaft's loop peeling")
 DEFINE_BOOL(turboshaft_loop_unrolling, true,
             "enable Turboshaft's loop unrolling")
+DEFINE_BOOL(turboshaft_string_concat_escape_analysis, false,
+            "enable Turboshaft's escape analysis for string concatenation")
+DEFINE_WEAK_IMPLICATION(future, turboshaft_string_concat_escape_analysis)
 
 DEFINE_EXPERIMENTAL_FEATURE(turboshaft_typed_optimizations,
                             "enable an additional Turboshaft phase that "
                             "performs optimizations based on type information")
-DEFINE_EXPERIMENTAL_FEATURE(
-    turboshaft_wasm_instruction_selection_experimental,
-    "run instruction selection on Turboshaft IR directly for wasm, on "
-    "architectures where the feature is experimental")
-DEFINE_BOOL(turboshaft_wasm_instruction_selection_staged, false,
+DEFINE_BOOL(turboshaft_wasm_instruction_selection_staged, true,
             "run instruction selection on Turboshaft IR directly for wasm, on "
             "architectures where we are staging the feature")
-DEFINE_EXPERIMENTAL_FEATURE(turboshaft_from_maglev,
-                            "build the Turboshaft graph from Maglev")
+DEFINE_EXPERIMENTAL_FEATURE(turbolev, "use Maglev as a frontend for Turboshaft")
 // inline_api_calls are not supported by the Turboshaft->Maglev translation.
-DEFINE_NEG_IMPLICATION(turboshaft_from_maglev, maglev_inline_api_calls)
+DEFINE_NEG_IMPLICATION(turbolev, maglev_inline_api_calls)
 
-DEFINE_BOOL(turboshaft_csa, false, "run the CSA pipeline with turboshaft")
+DEFINE_BOOL(turboshaft_csa, true, "run the CSA pipeline with turboshaft")
 DEFINE_IMPLICATION(turboshaft_csa, turboshaft_load_elimination)
-DEFINE_EXPERIMENTAL_FEATURE(turboshaft_frontend,
-                            "run (parts of) the frontend in Turboshaft")
+
 DEFINE_EXPERIMENTAL_FEATURE(
-    turboshaft_future,
-    "enable Turboshaft features that we want to ship in the not-too-far future")
-DEFINE_IMPLICATION(turboshaft_future, turboshaft)
-DEFINE_WEAK_IMPLICATION(turboshaft_future, turboshaft_wasm)
-#if V8_TARGET_ARCH_X64 or V8_TARGET_ARCH_ARM64 or V8_TARGET_ARCH_ARM or \
-    V8_TARGET_ARCH_IA32
-DEFINE_WEAK_IMPLICATION(turboshaft_future,
-                        turboshaft_wasm_instruction_selection_experimental)
-#endif
-DEFINE_WEAK_IMPLICATION(turboshaft_future,
-                        turboshaft_wasm_instruction_selection_staged)
+    typed_array_length_loading,
+    "Enable specializing loading the TypedArray length in Maglev / Turbofan")
 
 #if V8_ENABLE_WEBASSEMBLY
-// Shared-everything is implemented on turboshaft only for now.
-DEFINE_IMPLICATION(experimental_wasm_shared, turboshaft_wasm)
 DEFINE_NEG_IMPLICATION(experimental_wasm_shared, liftoff)
-
-// FP16 is implemented on liftoff and turboshaft only for now.
-DEFINE_IMPLICATION(experimental_wasm_fp16, turboshaft_wasm)
 #endif
 
 #ifdef DEBUG
@@ -1477,6 +1549,12 @@ DEFINE_BOOL(turboshaft_trace_emitted, false,
             "trace emitted Turboshaft instructions")
 DEFINE_WEAK_IMPLICATION(turboshaft_trace_intermediate_reductions,
                         turboshaft_trace_reduction)
+DEFINE_BOOL(turboshaft_trace_unrolling, false,
+            "trace Turboshaft's loop unrolling reducer")
+DEFINE_BOOL(turboshaft_trace_peeling, false,
+            "trace Turboshaft's loop peeling reducer")
+DEFINE_BOOL(turboshaft_trace_load_elimination, false,
+            "trace Turboshaft's late load elimination")
 #else
 DEFINE_BOOL_READONLY(turboshaft_trace_reduction, false,
                      "trace individual Turboshaft reduction steps")
@@ -1491,6 +1569,10 @@ DEFINE_BOOL(profile_guided_optimization_for_empty_feedback_vector, true,
             "profile guided optimization for empty feedback vector")
 DEFINE_INT(invocation_count_for_early_optimization, 30,
            "invocation count threshold for early optimization")
+DEFINE_INT(invocation_count_for_maglev_with_delay, 600,
+           "invocation count for maglev for functions which according to "
+           "profile_guided_optimization are likely to deoptimize before "
+           "reaching this invocation count")
 
 // Favor memory over execution speed.
 DEFINE_BOOL(optimize_for_size, false,
@@ -1498,40 +1580,15 @@ DEFINE_BOOL(optimize_for_size, false,
             "speed")
 DEFINE_VALUE_IMPLICATION(optimize_for_size, max_semi_space_size, size_t{1})
 
+DEFINE_BOOL(reopt_after_lazy_deopts, true,
+            "Immediately re-optimize code after some lazy deopts")
+
 // Flags for WebAssembly.
 #if V8_ENABLE_WEBASSEMBLY
 
 DEFINE_BOOL(wasm_generic_wrapper, true,
             "allow use of the generic js-to-wasm wrapper instead of "
             "per-signature wrappers")
-DEFINE_BOOL(wasm_to_js_generic_wrapper, true,
-            "allow use of the generic wasm-to-js wrapper instead of "
-            "per-signature wrappers")
-DEFINE_BOOL(expose_wasm, true, "expose wasm interface to JavaScript")
-// Do not expose wasm in jitless mode.
-//
-// Even in interpreter-only mode, wasm currently still creates executable
-// memory at runtime. Unexpose wasm until this changes.
-// The correctness fuzzers are a special case: many of their test cases are
-// built by fetching a random property from the the global object, and thus
-// the global object layout must not change between configs. That is why we
-// continue exposing wasm on correctness fuzzers even in jitless mode.
-// TODO(jgruber): Remove this once / if wasm can run without executable
-// memory.
-DEFINE_BOOL(jitless_and_not_correctness_fuzzer_suppressions, true,
-            "jitless && !correctness_fuzzer_suppressions")
-DEFINE_NEG_NEG_IMPLICATION(jitless,
-                           jitless_and_not_correctness_fuzzer_suppressions)
-DEFINE_NEG_IMPLICATION(correctness_fuzzer_suppressions,
-                       jitless_and_not_correctness_fuzzer_suppressions)
-#ifdef V8_ENABLE_DRUMBRAKE
-DEFINE_NEG_IMPLICATION(wasm_jitless,
-                       jitless_and_not_correctness_fuzzer_suppressions)
-DEFINE_NEG_IMPLICATION(wasm_jitless_if_available_for_testing,
-                       jitless_and_not_correctness_fuzzer_suppressions)
-#endif  // V8_ENABLE_DRUMBRAKE
-DEFINE_DISABLE_FLAG_IMPLICATION(jitless_and_not_correctness_fuzzer_suppressions,
-                                expose_wasm)
 DEFINE_INT(wasm_num_compilation_tasks, 128,
            "maximum number of parallel compilation tasks for wasm")
 DEFINE_VALUE_IMPLICATION(single_threaded, wasm_num_compilation_tasks, 0)
@@ -1540,6 +1597,9 @@ DEFINE_DEBUG_BOOL(trace_wasm_native_heap, false,
 DEFINE_BOOL(trace_wasm_offheap_memory, false,
             "print details of wasm off-heap memory when the memory measurement "
             "API is used")
+DEFINE_BOOL(
+    print_wasm_offheap_memory_size, false,
+    "print off-heap memory consumption per module and engine when they die")
 DEFINE_DEBUG_BOOL(trace_wasm_serialization, false,
                   "trace serialization/deserialization")
 DEFINE_BOOL(wasm_async_compilation, true,
@@ -1547,11 +1607,7 @@ DEFINE_BOOL(wasm_async_compilation, true,
 DEFINE_NEG_IMPLICATION(single_threaded, wasm_async_compilation)
 DEFINE_BOOL(wasm_test_streaming, false,
             "use streaming compilation instead of async compilation for tests")
-DEFINE_BOOL(wasm_native_module_cache_enabled, true,
-            "enable the native module cache")
-DEFINE_BOOL(turboshaft_wasm_wrappers, false,
-            "compile the wasm wrappers with Turboshaft (instead of TurboFan)")
-DEFINE_IMPLICATION(turboshaft_wasm, turboshaft_wasm_wrappers)
+DEFINE_BOOL(wasm_native_module_cache, true, "enable the native module cache")
 // The actual value used at runtime is clamped to kV8MaxWasmMemory{32,64}Pages.
 DEFINE_UINT(wasm_max_mem_pages, kMaxUInt32,
             "maximum number of 64KiB memory pages per wasm memory")
@@ -1599,6 +1655,9 @@ DEFINE_DEBUG_BOOL(trace_wasm_streaming, false,
                   "trace streaming compilation of wasm code")
 DEFINE_DEBUG_BOOL(trace_wasm_stack_switching, false,
                   "trace wasm stack switching")
+DEFINE_BOOL(stress_wasm_stack_switching, false,
+            "Always run wasm on a secondary stack, even when it is called "
+            "with a regular (non-JSPI) export")
 DEFINE_INT(wasm_stack_switching_stack_size, V8_DEFAULT_STACK_SIZE_KB,
            "default size of stacks for wasm stack-switching (in kB)")
 DEFINE_BOOL(liftoff, true,
@@ -1619,19 +1678,15 @@ DEFINE_DEBUG_BOOL(trace_liftoff, false,
                   "trace Liftoff, the baseline compiler for WebAssembly")
 DEFINE_BOOL(trace_wasm_memory, false,
             "print all memory updates performed in wasm code")
-// Fuzzers use {wasm_tier_mask_for_testing}, {wasm_debug_mask_for_testing}, and
-// {wasm_turboshaft_mask_for_testing} together with {liftoff} and
-// {no_wasm_tier_up} to force some functions to be compiled with TurboFan or for
-// debug.
+// Fuzzers use {wasm_tier_mask_for_testing} and {wasm_debug_mask_for_testing}
+// together with {liftoff} and {no_wasm_tier_up} to force some functions to be
+// compiled with TurboFan or for debug.
 DEFINE_INT(wasm_tier_mask_for_testing, 0,
            "bitmask of declared(!) function indices to compile with TurboFan "
            "instead of Liftoff")
 DEFINE_INT(wasm_debug_mask_for_testing, 0,
            "bitmask of declared(!) function indices to compile for debugging, "
            "only applies if the tier is Liftoff")
-DEFINE_INT(wasm_turboshaft_mask_for_testing, 0,
-           "bitmask of declared(!) function indices to compile with Turboshaft "
-           "instead of TurboFan")
 // TODO(clemensb): Introduce experimental_wasm_pgo to read from a custom section
 // instead of from a local file.
 DEFINE_BOOL(
@@ -1671,12 +1726,10 @@ DEFINE_EXPERIMENTAL_FEATURE(
     "Enable direct calls from wasm to fast API functions with bound "
     "call function to pass the the receiver as first parameter")
 
-DEFINE_EXPERIMENTAL_FEATURE(wasm_deopt,
-                            "enable deopts in optimized wasm functions")
+DEFINE_BOOL(wasm_deopt, false, "enable deopts in optimized wasm functions")
+DEFINE_WEAK_IMPLICATION(future, wasm_deopt)
 // Deopt only works in combination with feedback.
 DEFINE_NEG_NEG_IMPLICATION(liftoff, wasm_deopt)
-// Deopt support for wasm is not implemented for Turbofan.
-DEFINE_IMPLICATION(wasm_deopt, turboshaft_wasm)
 
 // Declare command-line flags for Wasm features. Warning: avoid using these
 // flags directly in the implementation. Instead accept
@@ -1699,7 +1752,10 @@ FOREACH_WASM_SHIPPED_FEATURE_FLAG(DECL_WASM_FLAG)
 
 DEFINE_IMPLICATION(experimental_wasm_stack_switching, experimental_wasm_jspi)
 
-DEFINE_IMPLICATION(experimental_wasm_jspi, experimental_wasm_type_reflection)
+DEFINE_IMPLICATION(experimental_wasm_growable_stacks, experimental_wasm_jspi)
+
+DEFINE_IMPLICATION(experimental_wasm_imported_strings_utf8,
+                   experimental_wasm_imported_strings)
 
 DEFINE_BOOL(wasm_staging, false, "enable staged wasm features")
 
@@ -1721,16 +1777,15 @@ DEFINE_NEG_NEG_IMPLICATION(wasm_bounds_checks, wasm_enforce_bounds_checks)
 DEFINE_BOOL(wasm_math_intrinsics, true,
             "intrinsify some Math imports into wasm")
 
-DEFINE_EXPERIMENTAL_FEATURE(
-    wasm_inlining_call_indirect,
-    "enable speculative inlining of Wasm indirect calls, also enables "
-    "--experimental-wasm-inlining and requires --turboshaft-wasm")
-// Requires basic inlining machinery, e.g., for allocating feedback vectors.
-DEFINE_IMPLICATION(wasm_inlining_call_indirect, experimental_wasm_inlining)
-// This is not implemented for Turbofan, so make sure users are aware by
-// forcing them to explicitly enable Turboshaft (until it's the default anyway).
-DEFINE_NEG_NEG_IMPLICATION(turboshaft_wasm, wasm_inlining_call_indirect)
+DEFINE_BOOL(wasm_inlining_call_indirect, false,
+            "enable speculative inlining of Wasm indirect calls")
+DEFINE_WEAK_IMPLICATION(future, wasm_inlining_call_indirect)
+// This doesn't make sense without and requires  the basic inlining machinery,
+// e.g., for allocating feedback vectors, so we automatically enable it.
+DEFINE_IMPLICATION(wasm_inlining_call_indirect, wasm_inlining)
 
+DEFINE_BOOL(wasm_inlining, true,
+            "enable inlining of Wasm functions into Wasm functions")
 DEFINE_SIZE_T(wasm_inlining_budget, 5000,
               "maximum graph size (in TF nodes) that allows inlining more")
 DEFINE_SIZE_T(wasm_inlining_max_size, 500,
@@ -1780,17 +1835,21 @@ DEFINE_INT(wasm_max_initial_code_space_reservation, 0,
            "maximum size of the initial wasm code space reservation (in MB)")
 DEFINE_BOOL(stress_wasm_memory_moving, false,
             "always move non-shared bounds-checked Wasm memory on grow")
-DEFINE_BOOL(flush_liftoff_code, false,
-            "enable flushing liftoff code on memory pressure signal")
 
 DEFINE_SIZE_T(wasm_max_module_size, wasm::kV8MaxWasmModuleSize,
               "maximum allowed size of wasm modules")
 DEFINE_SIZE_T(wasm_disassembly_max_mb, 1000,
               "maximum size of produced disassembly (in MB, approximate)")
 
+DEFINE_INT(wasm_capi_thread_pool_size, 0,
+           "size of the thread pool used by the wasm C API, with 0 meaning the "
+           "maximum number of threads")
+
 DEFINE_BOOL(trace_wasm, false, "trace wasm function calls")
 // Inlining breaks --trace-wasm, hence disable that if --trace-wasm is enabled.
-DEFINE_NEG_IMPLICATION(trace_wasm, experimental_wasm_inlining)
+// TODO(40898108,mliedtke,manoskouk): We should fix this; now that inlining is
+// enabled by default, one cannot trace the production configuration anymore.
+DEFINE_NEG_IMPLICATION(trace_wasm, wasm_inlining)
 
 // Flags for Wasm GDB remote debugging.
 #ifdef V8_ENABLE_WASM_GDB_REMOTE_DEBUGGING
@@ -1835,6 +1894,15 @@ DEFINE_BOOL(wasm_jitless_if_available_for_testing, false,
             "Enables the Wasm interpreter, for testing, but only if "
             "the 'v8_enable_drumbrake' flag is set.")
 DEFINE_IMPLICATION(wasm_jitless_if_available_for_testing, wasm_jitless)
+
+DEFINE_BOOL(drumbrake_compact_bytecode, false,
+            "Compress the Wasm interpreter bytecode")
+DEFINE_BOOL(trace_drumbrake_compact_bytecode, false,
+            "Traces the Wasm interpreter compact bytecode")
+DEFINE_BOOL(drumbrake_fuzzer_timeout, false,
+            "enable timeout for wasm fuzzer (for testing)")
+DEFINE_SIZE_T(drumbrake_fuzzer_timeout_limit_ms, 10000,
+              "timeout for wasm fuzzer (in ms)")
 #ifdef V8_ENABLE_DRUMBRAKE_TRACING
 DEFINE_BOOL(trace_drumbrake_bytecode_generator, false,
             "trace drumbrake generation of interpreter bytecode")
@@ -1917,9 +1985,6 @@ DEFINE_SIZE_T(
     "both max_semi_space_size and max_old_space_size take precedence. "
     "All three flags cannot be specified at the same time.")
 DEFINE_SIZE_T(initial_heap_size, 0, "initial size of the heap (in Mbytes)")
-DEFINE_BOOL(huge_max_old_generation_size, true,
-            "Increase max size of the old space to 4 GB for x64 systems with"
-            "the physical memory bigger than 16 GB")
 DEFINE_SIZE_T(initial_old_space_size, 0, "initial old space size (in Mbytes)")
 DEFINE_BOOL(separate_gc_phases, false,
             "young and full garbage collection phases are not overlapping")
@@ -1983,8 +2048,8 @@ DEFINE_BOOL(incremental_marking, true, "use incremental marking")
 DEFINE_BOOL(incremental_marking_bailout_when_ahead_of_schedule, true,
             "bails out of incremental marking when ahead of schedule")
 DEFINE_BOOL(incremental_marking_task, true, "use tasks for incremental marking")
-DEFINE_INT(incremental_marking_task_delay_ms, 0,
-           "incremental marking task delay. 0 means not using delayed tasks.")
+DEFINE_BOOL(incremental_marking_start_user_visible, false,
+            "Starts incremental marking with kUserVisible priority.")
 DEFINE_INT(incremental_marking_soft_trigger, 0,
            "threshold for starting incremental marking via a task in percent "
            "of available space: limit - size")
@@ -1993,11 +2058,11 @@ DEFINE_INT(incremental_marking_hard_trigger, 0,
            "of available space: limit - size")
 DEFINE_BOOL(trace_unmapper, false, "Trace the unmapping")
 DEFINE_BOOL(parallel_scavenge, true, "parallel scavenge")
-DEFINE_BOOL(minor_gc_task, true, "schedule scavenge tasks")
+DEFINE_BOOL(minor_gc_task, true, "schedule minor GC tasks")
 DEFINE_UINT(minor_gc_task_trigger, 80,
             "minor GC task trigger in percent of the current heap limit")
-DEFINE_BOOL(scavenge_separate_stack_scanning, false,
-            "use a separate phase for stack scanning in scavenge")
+DEFINE_BOOL(minor_gc_task_with_lower_priority, false,
+            "schedules the minor GC task with kUserVisible priority.")
 DEFINE_BOOL(trace_parallel_scavenge, false, "trace parallel scavenge")
 DEFINE_EXPERIMENTAL_FEATURE(
     cppgc_young_generation,
@@ -2086,6 +2151,10 @@ DEFINE_BOOL(verify_heap_skip_remembered_set, false,
 DEFINE_BOOL_READONLY(verify_heap, false,
                      "verify heap pointers before and after GC")
 #endif
+#if V8_OS_DARWIN
+DEFINE_BOOL(safepoint_bump_qos_class, false,
+            "Bump QOS class for running threads to reach safepoint")
+#endif
 DEFINE_BOOL(move_object_start, true, "enable moving of object starts")
 DEFINE_BOOL(memory_reducer, true, "use memory reducer")
 DEFINE_BOOL(memory_reducer_favors_memory, true,
@@ -2094,6 +2163,11 @@ DEFINE_BOOL(memory_reducer_for_small_heaps, true,
             "use memory reducer for small heaps")
 DEFINE_INT(memory_reducer_gc_count, 2,
            "Maximum number of memory reducer GCs scheduled")
+DEFINE_BOOL(
+    external_memory_accounted_in_global_limit, false,
+    "External memory limits are computed as part of global limits in v8 Heap.")
+DEFINE_BOOL(gc_speed_uses_counters, false,
+            "Old gen GC speed is computed directly from gc tracer counters.")
 DEFINE_INT(heap_growing_percent, 0,
            "specifies heap growing factor as (1 + heap_growing_percent/100)")
 DEFINE_INT(v8_os_page_size, 0, "override OS page size (in KBytes)")
@@ -2200,9 +2274,6 @@ DEFINE_NEG_NEG_IMPLICATION(cppheap_incremental_marking,
                            cppheap_concurrent_marking)
 DEFINE_NEG_NEG_IMPLICATION(concurrent_marking, cppheap_concurrent_marking)
 DEFINE_WEAK_IMPLICATION(concurrent_marking, cppheap_concurrent_marking)
-DEFINE_BOOL(cppheap_optimize_sweep_for_mutator, false,
-            "optimize sweeping for mutator time (i.e. spend less time in "
-            "synchronous sweeping and idle time)")
 
 DEFINE_BOOL(memory_balancer, false,
             "use membalancer, "
@@ -2218,8 +2289,20 @@ DEFINE_BOOL(trace_memory_balancer, false, "print memory balancer behavior.")
 #ifdef V8_ENABLE_DEBUG_CODE
 DEFINE_BOOL(debug_code, DEBUG_BOOL,
             "generate extra code (assertions) for debugging")
+#if defined(V8_ENABLE_SLOW_DEBUG_CODE_BY_DEFAULT) || \
+    defined(ENABLE_SLOW_DCHECKS)
+#define V8_ENABLE_SLOW_DEBUG_CODE_BY_DEFAULT_BOOL true
+#else
+#define V8_ENABLE_SLOW_DEBUG_CODE_BY_DEFAULT_BOOL false
+#endif
+// slow_debug_code is enabled by default for builds with is_debug or
+// v8_enable_slow_dchecks.
+DEFINE_BOOL(slow_debug_code, V8_ENABLE_SLOW_DEBUG_CODE_BY_DEFAULT_BOOL,
+            "generate slow extra code (assertions) for debugging")
+DEFINE_NEG_NEG_IMPLICATION(debug_code, slow_debug_code)
 #else
 DEFINE_BOOL_READONLY(debug_code, false, "")
+DEFINE_BOOL_READONLY(slow_debug_code, false, "")
 #endif
 #ifdef V8_CODE_COMMENTS
 DEFINE_BOOL(code_comments, false,
@@ -2240,6 +2323,8 @@ DEFINE_BOOL(enable_avx, true, "enable use of AVX instructions if available")
 DEFINE_BOOL(enable_avx2, true, "enable use of AVX2 instructions if available")
 DEFINE_BOOL(enable_avx_vnni, true,
             "enable use of AVX-VNNI instructions if available")
+DEFINE_BOOL(enable_avx_vnni_int8, true,
+            "enable use of AVX-VNNI-INT8 instructions if available")
 DEFINE_BOOL(enable_fma3, true, "enable use of FMA3 instructions if available")
 DEFINE_BOOL(enable_f16c, true, "enable use of F16C instructions if available")
 DEFINE_BOOL(enable_bmi1, true, "enable use of BMI1 instructions if available")
@@ -2254,13 +2339,12 @@ DEFINE_BOOL(force_long_branches, false,
             "force all emitted branches to be in long mode (MIPS/PPC only)")
 DEFINE_STRING(mcpu, "auto", "enable optimization for specific cpu")
 DEFINE_BOOL(partial_constant_pool, true,
-            "enable use of partial constant pools (X64 only)")
+            "enable use of partial constant pools (x64 only)")
 DEFINE_STRING(sim_arm64_optional_features, "none",
               "enable optional features on the simulator for testing: none or "
               "all")
-DEFINE_BOOL(intel_jcc_erratum_mitigation, false,
+DEFINE_BOOL(intel_jcc_erratum_mitigation, true,
             "enable mitigation for Intel JCC erratum on affected CPUs")
-DEFINE_WEAK_IMPLICATION(future, intel_jcc_erratum_mitigation)
 
 #if defined(V8_TARGET_ARCH_RISCV32) || defined(V8_TARGET_ARCH_RISCV64)
 DEFINE_BOOL(riscv_trap_to_simulator_debugger, false,
@@ -2302,9 +2386,12 @@ DEFINE_BOOL(
     "After deserializing code cache data on a background thread, merge it into "
     "an existing Script if one is found in the Isolate compilation cache")
 DEFINE_BOOL(verify_code_merge, false, "Verify scope infos after merge")
+
+// Fix https://issues.chromium.org/u/1/issues/366783806 before enabling.
 DEFINE_BOOL(
-    embedder_instance_types, false,
+    experimental_embedder_instance_types, false,
     "enable type checks based on instance types provided by the embedder")
+DEFINE_IMPLICATION(experimental_embedder_instance_types, experimental)
 
 // bootstrapper.cc
 DEFINE_BOOL(expose_gc, false, "expose gc extension")
@@ -2365,6 +2452,9 @@ DEFINE_INT(stress_lazy_compilation, 0,
            "stress lazy compilation by simulating stack overflow during "
            "unoptimized bytecode generation with 1/n-th probability, "
            "do nothing on 0")
+// Correctness fuzzing treats stack overflows as crashes.
+DEFINE_VALUE_IMPLICATION(correctness_fuzzer_suppressions,
+                         stress_lazy_compilation, 0)
 
 // codegen-ia32.cc / codegen-arm.cc
 DEFINE_BOOL(trace, false, "trace javascript function calls")
@@ -2391,11 +2481,6 @@ DEFINE_BOOL(always_turbofan, false, "always try to optimize functions")
 DEFINE_IMPLICATION(always_turbofan, turbofan)
 DEFINE_BOOL(always_osr, false, "always try to OSR functions")
 DEFINE_BOOL(prepare_always_turbofan, false, "prepare for turning on always opt")
-// On Arm64, every entry point in a function needs a BTI landing pad
-// instruction. Deopting to baseline means every bytecode is a potential entry
-// point, which increases codesize significantly.
-DEFINE_BOOL(deopt_to_baseline, false,
-            "deoptimize to baseline code when available")
 
 DEFINE_BOOL(trace_serializer, false, "print code serializer trace")
 #ifdef DEBUG
@@ -2409,18 +2494,20 @@ DEFINE_BOOL(compilation_cache, true, "enable compilation cache")
 DEFINE_BOOL(cache_prototype_transitions, true, "cache prototype transitions")
 
 // lazy-compile-dispatcher.cc
-DEFINE_BOOL(lazy_compile_dispatcher, false, "enable compiler dispatcher")
+DEFINE_EXPERIMENTAL_FEATURE(lazy_compile_dispatcher,
+                            "enable compiler dispatcher")
 DEFINE_UINT(lazy_compile_dispatcher_max_threads, 0,
             "max threads for compiler dispatcher (0 for unbounded)")
 DEFINE_BOOL(trace_compiler_dispatcher, false,
             "trace compiler dispatcher activity")
-DEFINE_BOOL(
-    parallel_compile_tasks_for_eager_toplevel, false,
+DEFINE_EXPERIMENTAL_FEATURE(
+    parallel_compile_tasks_for_eager_toplevel,
     "spawn parallel compile tasks for eagerly compiled, top-level functions")
 DEFINE_IMPLICATION(parallel_compile_tasks_for_eager_toplevel,
                    lazy_compile_dispatcher)
-DEFINE_BOOL(parallel_compile_tasks_for_lazy, false,
-            "spawn parallel compile tasks for all lazily compiled functions")
+DEFINE_EXPERIMENTAL_FEATURE(
+    parallel_compile_tasks_for_lazy,
+    "spawn parallel compile tasks for all lazily compiled functions")
 DEFINE_IMPLICATION(parallel_compile_tasks_for_lazy, lazy_compile_dispatcher)
 
 // cpu-profiler.cc
@@ -2473,8 +2560,8 @@ DEFINE_BOOL(heap_snapshot_on_oom, false,
             "Write a heap snapshot to disk on last-resort GCs")
 DEFINE_INT(heap_snapshot_on_gc, -1,
            "Write a heap snapshot to disk on a certain GC invocation")
-DEFINE_INT(heap_snapshot_string_limit, 1024,
-           "truncate strings to this length in the heap snapshot")
+DEFINE_UINT(heap_snapshot_string_limit, 1024,
+            "truncate strings to this length in the heap snapshot")
 DEFINE_BOOL(heap_profiler_show_hidden_objects, false,
             "use 'native' rather than 'hidden' node type in snapshot")
 DEFINE_BOOL(profile_heap_snapshot, false, "dump time spent on heap snapshot")
@@ -2497,10 +2584,11 @@ DEFINE_GENERIC_IMPLICATION(
                 v8::tracing::TracingCategoryObserver::ENABLED_BY_NATIVE))
 DEFINE_BOOL_READONLY(fast_map_update, false,
                      "enable fast map update by caching the migration target")
-DEFINE_INT(max_valid_polymorphic_map_count, 4,
+#define DEFAULT_MAX_POLYMORPHIC_MAP_COUNT 4
+DEFINE_INT(max_valid_polymorphic_map_count, DEFAULT_MAX_POLYMORPHIC_MAP_COUNT,
            "maximum number of valid maps to track in POLYMORPHIC state")
 DEFINE_BOOL(
-    clone_object_sidestep_transitions, false,
+    clone_object_sidestep_transitions, true,
     "support sidestep transitions for dependency tracking object clone maps")
 DEFINE_WEAK_IMPLICATION(future, clone_object_sidestep_transitions)
 
@@ -2526,9 +2614,9 @@ DEFINE_BOOL(trace_for_in_enumerate, false, "Trace for-in enumerate slow-paths")
 DEFINE_BOOL(log_maps, false, "Log map creation")
 DEFINE_BOOL(log_maps_details, true, "Also log map details")
 DEFINE_IMPLICATION(log_maps, log_code)
-DEFINE_BOOL(move_prototype_transitions_first, false,
-            "Always move prototype transitions to the front of the tree")
-DEFINE_WEAK_IMPLICATION(future, move_prototype_transitions_first)
+DEFINE_BOOL_READONLY(
+    move_prototype_transitions_first, true,
+    "Always move prototype transitions to the front of the tree")
 
 // parser.cc
 DEFINE_BOOL(allow_natives_syntax, false, "allow natives syntax")
@@ -2657,6 +2745,7 @@ DEFINE_BOOL(verify_snapshot_checksum, DEBUG_BOOL,
             "default in debug builds and once per process for Android.")
 DEFINE_BOOL(profile_deserialization, false,
             "Print the time it takes to deserialize the snapshot.")
+DEFINE_BOOL(trace_deserialization, false, "Trace the snapshot deserialization.")
 DEFINE_BOOL(serialization_statistics, false,
             "Collect statistics on serialized objects.")
 // Regexp
@@ -2676,6 +2765,7 @@ DEFINE_INT(regexp_tier_up_ticks, 1,
            "tiering-up to the compiler")
 DEFINE_BOOL(regexp_peephole_optimization, REGEXP_PEEPHOLE_OPTIMIZATION_BOOL,
             "enable peephole optimization for regexp bytecode")
+DEFINE_BOOL(regexp_results_cache, true, "enable the regexp results cache")
 DEFINE_BOOL(trace_regexp_peephole_optimization, false,
             "trace regexp bytecode peephole optimization")
 DEFINE_BOOL(trace_regexp_bytecodes, false, "trace regexp bytecode execution")
@@ -2708,6 +2798,14 @@ DEFINE_UINT(regexp_backtracks_before_fallback, 50000,
             "number of backtracks during regexp execution before fall back "
             "to experimental engine if "
             "enable_experimental_regexp_engine_on_excessive_backtracks is set")
+
+#if V8_TARGET_ARCH_X64 || V8_TARGET_ARCH_ARM64
+DEFINE_BOOL(regexp_simd, true, "enable SIMD for regexp jit code")
+#else
+DEFINE_BOOL_READONLY(
+    regexp_simd, false,
+    "enable SIMD for regexp jit code (not supported for this architecture)")
+#endif  // V8_TARGET_ARCH_X64 || V8_TARGET_ARCH_ARM64
 
 DEFINE_BOOL(trace_read_only_promotion, false,
             "trace the read-only promotion pass")
@@ -2758,36 +2856,49 @@ DEFINE_BOOL(
 //
 #ifdef V8_ENABLE_SANDBOX
 DEFINE_BOOL(sandbox_testing, false,
-            "Enable sandbox testing mode. Useful for demonstrating and "
-            "validating sandbox bypasses. This exposes the memory corruption "
-            "API and enables the sandbox crash filter to filter out crashes "
-            "that do not represent a sandbox bypass")
+            "Enable sandbox testing mode. This exposes the memory corruption "
+            "API (if available) and enables the sandbox crash filter to "
+            "terminate the process (with status zero) if a crash that does not "
+            "represent a sandbox violation is detected.")
 #else
 DEFINE_BOOL_READONLY(
     sandbox_testing, false,
-    "Enable sandbox testing mode. Useful for demonstrating and validating "
-    "sandbox bypasses. This exposes the memory corruption API and enables the "
-    "sandbox crash filter to filter out crashes that do not represent a "
-    "sandbox bypass")
+    "Enable sandbox testing mode. This exposes the memory corruption API (if "
+    "available) and enables the sandbox crash filter to terminate the process "
+    "(with status zero) if a crash that does not represent a sandbox violation "
+    "is detected.")
 #endif
 
 #ifdef V8_ENABLE_MEMORY_CORRUPTION_API
 // Sandbox fuzzing mode requires the memory corruption API.
 DEFINE_BOOL(sandbox_fuzzing, false,
             "Enable sandbox fuzzing mode. This exposes the memory corruption "
-            "API and enables the sandbox crash filter, causing all crashes "
-            "that are not sandbox violations to be ignored.")
+            "API and enables the sandbox crash filter to terminate the process "
+            "(with non-zero status) if a crash that does not represent a "
+            "sandbox violation is detected.")
 #else
-DEFINE_BOOL_READONLY(
-    sandbox_fuzzing, false,
-    "Enable sandbox fuzzing mode. This exposes the memory corruption API and "
-    "enables the sandbox crash filter, causing all crashes that are not "
-    "sandbox violations to be ignored.")
+DEFINE_BOOL_READONLY(sandbox_fuzzing, false,
+                     "Enable sandbox fuzzing mode. This exposes the memory "
+                     "corruption API and enables the sandbox crash filter to "
+                     "terminate the process (with non-zero status) if a crash "
+                     "that does not represent a sandbox violation is detected.")
 #endif
 
 // Only one of these can be enabled.
 DEFINE_NEG_IMPLICATION(sandbox_fuzzing, sandbox_testing)
 DEFINE_NEG_IMPLICATION(sandbox_testing, sandbox_fuzzing)
+
+#ifdef V8_ENABLE_MEMORY_CORRUPTION_API
+DEFINE_BOOL(expose_memory_corruption_api, false,
+            "Exposes the memory corruption API. Set automatically by "
+            "--sandbox-testing and --sandbox-fuzzing.")
+DEFINE_IMPLICATION(sandbox_fuzzing, expose_memory_corruption_api)
+DEFINE_IMPLICATION(sandbox_testing, expose_memory_corruption_api)
+#else
+DEFINE_BOOL_READONLY(expose_memory_corruption_api, false,
+                     "Exposes the memory corruption API. Set automatically by "
+                     "--sandbox-testing and --sandbox-fuzzing.")
+#endif
 
 #if defined(V8_OS_AIX) && defined(COMPONENT_BUILD)
 // FreezeFlags relies on mprotect() method, which does not work by default on
@@ -2798,6 +2909,15 @@ DEFINE_BOOL(freeze_flags_after_init, false,
 DEFINE_BOOL(freeze_flags_after_init, true,
             "Disallow changes to flag values after initializing V8")
 #endif  // defined(V8_OS_AIX) && defined(COMPONENT_BUILD)
+
+#if V8_ENABLE_CET_SHADOW_STACK
+#define V8_CET_SHADOW_STACK_BOOL true
+#else
+#define V8_CET_SHADOW_STACK_BOOL false
+#endif
+DEFINE_BOOL(cet_compatible, V8_CET_SHADOW_STACK_BOOL,
+            "Generate Intel CET compatible code")
+DEFINE_NEG_IMPLICATION(cet_compatible, compact_code_space_with_stack)
 
 // mksnapshot.cc
 DEFINE_STRING(embedded_src, nullptr,
@@ -2846,8 +2966,20 @@ DEFINE_BOOL(concurrent_minor_ms_marking, true,
             "perform young generation marking concurrently")
 DEFINE_NEG_NEG_IMPLICATION(concurrent_marking, concurrent_minor_ms_marking)
 
+#ifdef V8_ENABLE_BLACK_ALLOCATED_PAGES
+#define V8_ENABLE_BLACK_ALLOCATED_PAGES_BOOL true
+#else
+#define V8_ENABLE_BLACK_ALLOCATED_PAGES_BOOL false
+#endif
+DEFINE_BOOL_READONLY(
+    black_allocated_pages, V8_ENABLE_BLACK_ALLOCATED_PAGES_BOOL,
+    "allocate non-young objects during incremental marking on separate pages")
+
 #ifdef V8_ENABLE_STICKY_MARK_BITS
 #define V8_ENABLE_STICKY_MARK_BITS_BOOL true
+#if V8_ENABLE_BLACK_ALLOCATED_PAGES_BOOL
+#error "Black allocated pages are not supported with sticky mark bits"
+#endif  // V8_ENABLE_BLACK_ALLOCATED_PAGES_BOOL
 #else
 #define V8_ENABLE_STICKY_MARK_BITS_BOOL false
 #endif
@@ -2941,7 +3073,6 @@ DEFINE_BOOL_READONLY(enable_slow_asserts, false,
 
 // codegen-ia32.cc / codegen-arm.cc / macro-assembler-*.cc
 DEFINE_BOOL(print_ast, false, "print source AST")
-DEFINE_BOOL(trap_on_abort, false, "replace aborts by breakpoints")
 
 // compiler.cc
 DEFINE_BOOL(print_scopes, false, "print scopes")
@@ -3122,14 +3253,27 @@ DEFINE_BOOL(interpreted_frames_native_stack, false,
             "Show interpreted frames on the native stack (useful for external "
             "profilers).")
 
-#if defined(V8_OS_WIN) && defined(V8_ENABLE_ETW_STACK_WALKING)
+#if defined(V8_ENABLE_ETW_STACK_WALKING)
 DEFINE_BOOL(enable_etw_stack_walking, false,
             "Enable etw stack walking for windows")
 DEFINE_WEAK_IMPLICATION(future, enable_etw_stack_walking)
-#else
+DEFINE_BOOL(etw_trace_debug, false,
+            "Enable etw debug logging (only on debug builds)")
+DEFINE_BOOL(enable_etw_by_custom_filter_only, true,
+            "Enable etw stack walking for windows, but only if explicitly "
+            "specified in a WPR profile")
+#else   // V8_ENABLE_ETW_STACK_WALKING
 DEFINE_BOOL_READONLY(enable_etw_stack_walking, false,
                      "Enable etw stack walking for windows")
-#endif
+DEFINE_BOOL_READONLY(etw_trace_debug, false,
+                     "Enable etw debug logging (only on debug builds)")
+DEFINE_BOOL_READONLY(
+    enable_etw_by_custom_filter_only, false,
+    "Enable etw stack walking for windows, but only if explicitly "
+    "specified in a WPR profile")
+#endif  // V8_ENABLE_ETW_STACK_WALKING
+
+DEFINE_BOOL(print_builtin_size, false, "print code size for builtins")
 
 //
 // Disassembler only flags
@@ -3156,7 +3300,6 @@ DEFINE_STRING(print_builtin_code_filter, "*",
               "filter for printing builtin code")
 DEFINE_BOOL(print_regexp_code, false, "print generated regexp code")
 DEFINE_BOOL(print_regexp_bytecode, false, "print generated regexp bytecode")
-DEFINE_BOOL(print_builtin_size, false, "print code size for builtins")
 
 #ifdef ENABLE_DISASSEMBLER
 DEFINE_BOOL(print_all_code, false, "enable all flags related to printing code")
@@ -3213,6 +3356,7 @@ DEFINE_NEG_IMPLICATION(predictable_gc_schedule, memory_reducer)
 DEFINE_BOOL(single_threaded, false, "disable the use of background tasks")
 DEFINE_IMPLICATION(single_threaded, single_threaded_gc)
 DEFINE_NEG_IMPLICATION(single_threaded, concurrent_recompilation)
+DEFINE_NEG_IMPLICATION(single_threaded, concurrent_builtin_generation)
 DEFINE_NEG_IMPLICATION(single_threaded, stress_concurrent_inlining)
 DEFINE_NEG_IMPLICATION(single_threaded, lazy_compile_dispatcher)
 DEFINE_NEG_IMPLICATION(single_threaded,
@@ -3238,9 +3382,9 @@ DEFINE_NEG_IMPLICATION(single_threaded_gc, concurrent_array_buffer_sweeping)
 DEFINE_NEG_IMPLICATION(single_threaded_gc, stress_concurrent_allocation)
 DEFINE_NEG_IMPLICATION(single_threaded_gc, cppheap_concurrent_marking)
 
-DEFINE_BOOL(single_threaded_gc_in_background, false,
+DEFINE_BOOL(single_threaded_gc_in_background, true,
             "disable the use of background gc tasks when in background")
-DEFINE_BOOL(parallel_pause_for_gc_in_background, false,
+DEFINE_BOOL(parallel_pause_for_gc_in_background, true,
             "Use parallel threads in the atomic pause for background GCs")
 DEFINE_BOOL(incremental_marking_for_gc_in_background, true,
             "Use parallel threads in the atomic pause for background GCs")
@@ -3249,6 +3393,9 @@ DEFINE_BOOL(update_allocation_limits_after_loading, false,
             "force recomputation of allocation limites when leaving the "
             "loading RAIL mode (either on a RAIL mode change or incremental "
             "marking start).")
+
+DEFINE_EXPERIMENTAL_FEATURE(shared_heap,
+                            "Enables a shared heap between isolates.")
 
 #if defined(V8_USE_LIBM_TRIG_FUNCTIONS)
 DEFINE_BOOL(use_libm_trig_functions, true, "use libm trig functions")
@@ -3322,6 +3469,7 @@ DEFINE_IMPLICATION(gdbjit, log)
 #undef DEFINE_DISABLE_FLAG_IMPLICATION
 #undef DEFINE_WEAK_VALUE_IMPLICATION
 #undef DEFINE_GENERIC_IMPLICATION
+#undef DEFINE_REQUIREMENT
 #undef DEFINE_ALIAS_BOOL
 #undef DEFINE_ALIAS_INT
 #undef DEFINE_ALIAS_STRING

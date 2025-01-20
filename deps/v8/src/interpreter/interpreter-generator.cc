@@ -9,6 +9,10 @@
 
 #include "src/builtins/builtins-constructor-gen.h"
 #include "src/builtins/profile-data-reader.h"
+#include "src/codegen/interface-descriptors-inl.h"
+#include "src/compiler/linkage.h"
+#include "src/compiler/pipeline.h"
+#include "src/compiler/turboshaft/builtin-compiler.h"
 #include "src/ic/accessor-assembler.h"
 #include "src/ic/binary-op-assembler.h"
 #include "src/ic/ic.h"
@@ -16,6 +20,7 @@
 #include "src/interpreter/bytecode-flags-and-tokens.h"
 #include "src/interpreter/bytecodes.h"
 #include "src/interpreter/interpreter-assembler.h"
+#include "src/interpreter/interpreter-generator-tsa.h"
 #include "src/interpreter/interpreter-intrinsics-generator.h"
 #include "src/objects/cell.h"
 #include "src/objects/js-generator.h"
@@ -29,6 +34,8 @@
 namespace v8 {
 namespace internal {
 namespace interpreter {
+
+#include "src/codegen/define-code-stub-assembler-macros.inc"
 
 namespace {
 
@@ -259,6 +266,20 @@ IGNITION_HANDLER(LdaContextSlot, InterpreterAssembler) {
   Dispatch();
 }
 
+// LdaScriptContextSlot <context> <slot_index> <depth>
+//
+// Load the object in |slot_index| of the context at |depth| in the context
+// chain starting at |context| into the accumulator.
+IGNITION_HANDLER(LdaScriptContextSlot, InterpreterAssembler) {
+  TNode<Context> context = CAST(LoadRegisterAtOperandIndex(0));
+  TNode<IntPtrT> slot_index = Signed(BytecodeOperandIdx(1));
+  TNode<Uint32T> depth = BytecodeOperandUImm(2);
+  TNode<Context> slot_context = GetContextAtDepth(context, depth);
+  TNode<Object> result = LoadScriptContextElement(slot_context, slot_index);
+  SetAccumulator(result);
+  Dispatch();
+}
+
 // LdaImmutableContextSlot <context> <slot_index> <depth>
 //
 // Load the object in |slot_index| of the context at |depth| in the context
@@ -280,6 +301,17 @@ IGNITION_HANDLER(LdaCurrentContextSlot, InterpreterAssembler) {
   TNode<IntPtrT> slot_index = Signed(BytecodeOperandIdx(0));
   TNode<Context> slot_context = GetContext();
   TNode<Object> result = LoadContextElement(slot_context, slot_index);
+  SetAccumulator(result);
+  Dispatch();
+}
+
+// LdaCurrentScriptContextSlot <slot_index>
+//
+// Load the object in |slot_index| of the current context into the accumulator.
+IGNITION_HANDLER(LdaCurrentScriptContextSlot, InterpreterAssembler) {
+  TNode<IntPtrT> slot_index = Signed(BytecodeOperandIdx(0));
+  TNode<Context> slot_context = GetContext();
+  TNode<Object> result = LoadScriptContextElement(slot_context, slot_index);
   SetAccumulator(result);
   Dispatch();
 }
@@ -379,7 +411,7 @@ class InterpreterLookupContextSlotAssembler : public InterpreterAssembler {
                                         OperandScale operand_scale)
       : InterpreterAssembler(state, bytecode, operand_scale) {}
 
-  void LookupContextSlot(Runtime::FunctionId function_id) {
+  void LookupContextSlot(Runtime::FunctionId function_id, ContextKind kind) {
     TNode<Context> context = GetContext();
     TNode<IntPtrT> slot_index = Signed(BytecodeOperandIdx(1));
     TNode<Uint32T> depth = BytecodeOperandUImm(2);
@@ -392,7 +424,10 @@ class InterpreterLookupContextSlotAssembler : public InterpreterAssembler {
 
     // Fast path does a normal load context.
     {
-      TNode<Object> result = LoadContextElement(slot_context, slot_index);
+      TNode<Object> result =
+          (kind == ContextKind::kScriptContext)
+              ? LoadScriptContextElement(slot_context, slot_index)
+              : LoadContextElement(slot_context, slot_index);
       SetAccumulator(result);
       Dispatch();
     }
@@ -413,7 +448,16 @@ class InterpreterLookupContextSlotAssembler : public InterpreterAssembler {
 // Lookup the object with the name in constant pool entry |name_index|
 // dynamically.
 IGNITION_HANDLER(LdaLookupContextSlot, InterpreterLookupContextSlotAssembler) {
-  LookupContextSlot(Runtime::kLoadLookupSlot);
+  LookupContextSlot(Runtime::kLoadLookupSlot, ContextKind::kDefault);
+}
+
+// LdaLookupScriptContextSlot <name_index>
+//
+// Lookup the object with the name in constant pool entry |name_index|
+// dynamically.
+IGNITION_HANDLER(LdaLookupScriptContextSlot,
+                 InterpreterLookupContextSlotAssembler) {
+  LookupContextSlot(Runtime::kLoadLookupSlot, ContextKind::kScriptContext);
 }
 
 // LdaLookupContextSlotInsideTypeof <name_index>
@@ -422,7 +466,18 @@ IGNITION_HANDLER(LdaLookupContextSlot, InterpreterLookupContextSlotAssembler) {
 // dynamically without causing a NoReferenceError.
 IGNITION_HANDLER(LdaLookupContextSlotInsideTypeof,
                  InterpreterLookupContextSlotAssembler) {
-  LookupContextSlot(Runtime::kLoadLookupSlotInsideTypeof);
+  LookupContextSlot(Runtime::kLoadLookupSlotInsideTypeof,
+                    ContextKind::kDefault);
+}
+
+// LdaLookupScriptContextSlotInsideTypeof <name_index>
+//
+// Lookup the object with the name in constant pool entry |name_index|
+// dynamically without causing a NoReferenceError.
+IGNITION_HANDLER(LdaLookupScriptContextSlotInsideTypeof,
+                 InterpreterLookupContextSlotAssembler) {
+  LookupContextSlot(Runtime::kLoadLookupSlotInsideTypeof,
+                    ContextKind::kScriptContext);
 }
 
 class InterpreterLookupGlobalAssembler : public InterpreterLoadGlobalAssembler {
@@ -1144,6 +1199,8 @@ IGNITION_HANDLER(BitwiseAndSmi, InterpreterBitwiseBinaryOpAssembler) {
   BitwiseBinaryOpWithSmi(Operation::kBitwiseAnd);
 }
 
+#ifndef V8_ENABLE_EXPERIMENTAL_TSA_BUILTINS
+
 // BitwiseNot <feedback_slot>
 //
 // Perform bitwise-not on the accumulator.
@@ -1162,6 +1219,8 @@ IGNITION_HANDLER(BitwiseNot, InterpreterAssembler) {
   SetAccumulator(result);
   Dispatch();
 }
+
+#endif
 
 // ShiftLeftSmi <imm>
 //
@@ -1719,21 +1778,18 @@ class InterpreterCompareOpAssembler : public InterpreterAssembler {
     }
 
     TNode<UintPtrT> slot_index = BytecodeOperandIdx(1);
-    TNode<HeapObject> maybe_feedback_vector =
-        LoadFeedbackVectorOrUndefinedIfJitless();
     static constexpr UpdateFeedbackMode mode = DefaultUpdateFeedbackMode();
-    UpdateFeedback(var_type_feedback.value(), maybe_feedback_vector, slot_index,
-                   mode);
+    UpdateFeedback(var_type_feedback.value(),
+                   LoadFeedbackVectorOrUndefinedIfJitless(), slot_index, mode);
     SetAccumulator(result);
     Dispatch();
 
     BIND(&if_exception);
     {
-      TNode<UintPtrT> slot_index = BytecodeOperandIdx(1);
-      TNode<HeapObject> maybe_feedback_vector =
-          LoadFeedbackVectorOrUndefinedIfJitless();
-      UpdateFeedback(var_type_feedback.value(), maybe_feedback_vector,
-                     slot_index, mode);
+      slot_index = BytecodeOperandIdx(1);
+      UpdateFeedback(var_type_feedback.value(),
+                     LoadFeedbackVectorOrUndefinedIfJitless(), slot_index,
+                     mode);
       CallRuntime(Runtime::kReThrow, context, var_exception.value());
       Unreachable();
     }
@@ -3292,28 +3348,35 @@ IGNITION_HANDLER(ResumeGenerator, InterpreterAssembler) {
 
 }  // namespace
 
-Handle<Code> GenerateBytecodeHandler(Isolate* isolate, const char* debug_name,
-                                     Bytecode bytecode,
-                                     OperandScale operand_scale,
-                                     Builtin builtin,
-                                     const AssemblerOptions& options) {
-  Zone zone(isolate->allocator(), ZONE_NAME, kCompressGraphZone);
-  compiler::CodeAssemblerState state(
-      isolate, &zone, InterpreterDispatchDescriptor{},
-      CodeKind::BYTECODE_HANDLER, debug_name, builtin);
+void BitwiseNotAssemblerTS_Generate(compiler::turboshaft::PipelineData* data,
+                                    Isolate* isolate,
+                                    compiler::turboshaft::Graph& graph,
+                                    Zone* zone);
 
+void GenerateBytecodeHandler(compiler::CodeAssemblerState* state,
+                             Bytecode bytecode, OperandScale operand_scale) {
   switch (bytecode) {
-#define CALL_GENERATOR(Name, ...)                     \
-  case Bytecode::k##Name:                             \
-    Name##Assembler::Generate(&state, operand_scale); \
+#define CALL_GENERATOR(Name, ...)                    \
+  case Bytecode::k##Name:                            \
+    Name##Assembler::Generate(state, operand_scale); \
     break;
-    BYTECODE_LIST_WITH_UNIQUE_HANDLERS(CALL_GENERATOR);
+#define CALL_GENERATOR_TS(Name, ...)                                       \
+  /* FIXME(348031042): This doesn't compile since the                      \
+   * CodeAssemblerCompilationJob refactor. */                              \
+  case Bytecode::k##Name:                                                  \
+    code = compiler::turboshaft::BuildWithTurboshaftAssemblerImpl(         \
+        isolate, builtin, &Name##AssemblerTS_Generate, descriptor_builder, \
+        debug_name, options, CodeKind::BYTECODE_HANDLER,                   \
+        BytecodeHandlerData(bytecode, operand_scale));                     \
+    break;
+    BYTECODE_LIST_WITH_UNIQUE_HANDLERS(CALL_GENERATOR, CALL_GENERATOR_TS);
 #undef CALL_GENERATOR
+#undef CALL_GENERATOR_TS
     case Bytecode::kIllegal:
-      IllegalAssembler::Generate(&state, operand_scale);
+      IllegalAssembler::Generate(state, operand_scale);
       break;
     case Bytecode::kStar0:
-      Star0Assembler::Generate(&state, operand_scale);
+      Star0Assembler::Generate(state, operand_scale);
       break;
     default:
       // Others (the rest of the short stars, and the rest of the illegal range)
@@ -3321,20 +3384,9 @@ Handle<Code> GenerateBytecodeHandler(Isolate* isolate, const char* debug_name,
       // the jump table point to those handlers.
       UNREACHABLE();
   }
-
-  Handle<Code> code = compiler::CodeAssembler::GenerateCode(
-      &state, options, ProfileDataFromFile::TryRead(debug_name));
-
-#ifdef ENABLE_DISASSEMBLER
-  if (v8_flags.trace_ignition_codegen) {
-    StdoutStream os;
-    code->Disassemble(Bytecodes::ToString(bytecode), os, isolate);
-    os << std::flush;
-  }
-#endif  // ENABLE_DISASSEMBLER
-
-  return code;
 }
+
+#include "src/codegen/undef-code-stub-assembler-macros.inc"
 
 }  // namespace interpreter
 }  // namespace internal

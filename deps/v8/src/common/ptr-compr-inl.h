@@ -9,6 +9,10 @@
 #include "src/execution/isolate.h"
 #include "src/execution/local-isolate-inl.h"
 
+#ifdef V8_ENABLE_SANDBOX
+#include "src/sandbox/sandbox.h"
+#endif  // V8_ENABLE_SANDBOX
+
 namespace v8 {
 namespace internal {
 
@@ -27,7 +31,7 @@ constexpr Address kPtrComprCageBaseMask = ~(kPtrComprCageBaseAlignment - 1);
 
 // static
 template <typename Cage>
-Address V8HeapCompressionSchemeImpl<Cage>::GetPtrComprCageBaseAddress(
+constexpr Address V8HeapCompressionSchemeImpl<Cage>::GetPtrComprCageBaseAddress(
     Address on_heap_addr) {
   return RoundDown<kPtrComprCageBaseAlignment>(on_heap_addr);
 }
@@ -85,7 +89,8 @@ Tagged_t V8HeapCompressionSchemeImpl<Cage>::CompressObject(Address tagged) {
 
 // static
 template <typename Cage>
-Tagged_t V8HeapCompressionSchemeImpl<Cage>::CompressAny(Address tagged) {
+constexpr Tagged_t V8HeapCompressionSchemeImpl<Cage>::CompressAny(
+    Address tagged) {
   return static_cast<Tagged_t>(tagged);
 }
 
@@ -201,7 +206,7 @@ Tagged_t ExternalCodeCompressionScheme::CompressObject(Address tagged) {
 }
 
 // static
-Tagged_t ExternalCodeCompressionScheme::CompressAny(Address tagged) {
+constexpr Tagged_t ExternalCodeCompressionScheme::CompressAny(Address tagged) {
   return static_cast<Tagged_t>(tagged);
 }
 
@@ -273,9 +278,10 @@ V8_INLINE PtrComprCageBase GetPtrComprCageBase() {
 
 // static
 template <typename Cage>
-Address V8HeapCompressionSchemeImpl<Cage>::GetPtrComprCageBaseAddress(
+constexpr Address V8HeapCompressionSchemeImpl<Cage>::GetPtrComprCageBaseAddress(
     Address on_heap_addr) {
   UNREACHABLE();
+  return {};
 }
 
 // static
@@ -286,8 +292,10 @@ Tagged_t V8HeapCompressionSchemeImpl<Cage>::CompressObject(Address tagged) {
 
 // static
 template <typename Cage>
-Tagged_t V8HeapCompressionSchemeImpl<Cage>::CompressAny(Address tagged) {
+constexpr Tagged_t V8HeapCompressionSchemeImpl<Cage>::CompressAny(
+    Address tagged) {
   UNREACHABLE();
+  return {};
 }
 
 // static
@@ -338,12 +346,20 @@ PtrComprCageAccessScope::PtrComprCageAccessScope(Isolate* isolate)
 #ifdef V8_EXTERNAL_CODE_SPACE
       code_cage_base_(ExternalCodeCompressionScheme::base()),
 #endif  // V8_EXTERNAL_CODE_SPACE
-      saved_current_isolate_group_(IsolateGroup::current()) {
+      saved_current_isolate_group_(IsolateGroup::current())
+#ifdef V8_ENABLE_SANDBOX
+      ,
+      saved_current_sandbox_(Sandbox::current())
+#endif  // V8_ENABLE_SANDBOX
+{
   V8HeapCompressionScheme::InitBase(isolate->cage_base());
 #ifdef V8_EXTERNAL_CODE_SPACE
   ExternalCodeCompressionScheme::InitBase(isolate->code_cage_base());
 #endif  // V8_EXTERNAL_CODE_SPACE
   IsolateGroup::set_current(isolate->isolate_group());
+#ifdef V8_ENABLE_SANDBOX
+  Sandbox::set_current(isolate->isolate_group()->sandbox());
+#endif  // V8_ENABLE_SANDBOX
 }
 
 PtrComprCageAccessScope::~PtrComprCageAccessScope() {
@@ -352,6 +368,9 @@ PtrComprCageAccessScope::~PtrComprCageAccessScope() {
   ExternalCodeCompressionScheme::InitBase(code_cage_base_);
 #endif  // V8_EXTERNAL_CODE_SPACE
   IsolateGroup::set_current(saved_current_isolate_group_);
+#ifdef V8_ENABLE_SANDBOX
+  Sandbox::set_current(saved_current_sandbox_);
+#endif  // V8_ENABLE_SANDBOX
 }
 
 #endif  // V8_COMPRESS_POINTERS_IN_MULTIPLE_CAGES

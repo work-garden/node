@@ -6,9 +6,11 @@
  * @fileoverview Corpus
  */
 
-const program = require('commander');
+
+const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
+const program = require('commander');
 
 const exceptions = require('./exceptions.js');
 const random = require('./random.js');
@@ -34,10 +36,10 @@ function* walkDirectory(directory, filter) {
   }
 }
 
-class Corpus {
+class Corpus extends sourceHelpers.BaseCorpus {
   // Input corpus.
   constructor(inputDir, corpusName, extraStrict=false) {
-    this.inputDir = inputDir;
+    super(inputDir);
     this.extraStrict = extraStrict;
 
     // Filter for permitted JS files.
@@ -99,7 +101,7 @@ class Corpus {
   loadTestcase(relPath, strict, label) {
     const start = Date.now();
     try {
-      const source = sourceHelpers.loadSource(this.inputDir, relPath, strict);
+      const source = sourceHelpers.loadSource(this, relPath, strict);
       if (program.verbose) {
         const duration = Date.now() - start;
         console.log(`Parsing ${relPath} ${label} took ${duration} ms.`);
@@ -135,7 +137,74 @@ class Corpus {
   }
 }
 
+class FuzzilliCorpus extends Corpus {
+  constructor(inputDir, corpusName, extraStrict=false) {
+    super(inputDir, corpusName, extraStrict);
+    this.flagMap = new Map();
+  }
+
+  get diffFuzzLabel() {
+    // Sources from Fuzzilli use the same universal label for differential
+    // fuzzing because the input file path is random and volatile. It can't
+    // be used to map to particular content.
+    return "fuzzilli_source";
+  }
+
+  loadFlags(relPath, data) {
+    // Create the settings path based on the location of the test file, e.g.
+    // .../fuzzilli/fuzzdir-1/settings.json for
+    // .../fuzzilli/fuzzdir-1/corpus/program_x.js
+    const pathComponents = relPath.split(path.sep);
+    assert(pathComponents.length > 1);
+    assert(pathComponents[0] == 'fuzzilli');
+    const settingsPath = path.join(
+        this.inputDir, pathComponents[0], pathComponents[1], 'settings.json');
+
+    // Use cached flags if already loaded.
+    let flags = this.flagMap.get(settingsPath);
+    if (flags == undefined) {
+      assert(fs.existsSync(settingsPath));
+      const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
+      flags = exceptions.filterFlags(settings["processArguments"]);
+      this.flagMap.set(settingsPath, flags);
+    }
+    return flags;
+  }
+}
+
+class V8Corpus extends Corpus {
+  loadFlags(relPath, data) {
+    const result = [];
+    let count = 0;
+    for (const line of data.split('\n')) {
+      if (count++ > 40) {
+        // No need to process the whole file. Flags are always added after the
+        // copyright header.
+        break;
+      }
+      const match = line.match(/\/\/ Flags:\s*(.*)\s*/);
+      if (!match) {
+        continue;
+      }
+      for (const flag of exceptions.filterFlags(match[1].split(/\s+/))) {
+        result.push(flag);
+      }
+    }
+    return result;
+  }
+}
+
+const CORPUS_CLASSES = {
+  'fuzzilli': FuzzilliCorpus,
+  'v8': V8Corpus,
+};
+
+function create(inputDir, corpusName, extraStrict=false) {
+  const cls = CORPUS_CLASSES[corpusName] || Corpus;
+  return new cls(inputDir, corpusName, extraStrict);
+}
+
 module.exports = {
-  Corpus: Corpus,
+  create: create,
   walkDirectory: walkDirectory,
 }

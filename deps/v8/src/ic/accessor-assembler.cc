@@ -11,6 +11,7 @@
 #include "src/builtins/builtins-inl.h"
 #include "src/codegen/code-stub-assembler-inl.h"
 #include "src/codegen/interface-descriptors-inl.h"
+#include "src/common/globals.h"
 #include "src/ic/handler-configuration.h"
 #include "src/ic/ic.h"
 #include "src/ic/keyed-store-generic.h"
@@ -29,6 +30,8 @@
 
 namespace v8 {
 namespace internal {
+
+#include "src/codegen/define-code-stub-assembler-macros.inc"
 
 //////////////////// Private helpers.
 
@@ -256,10 +259,10 @@ void AccessorAssembler::TryEnumeratedKeyedLoad(
     {
       TNode<PropertyArray> properties = CAST(LoadFastProperties(
           CAST(p->receiver_and_lookup_start_object()), true));
-      TNode<IntPtrT> offset = Signed(ChangeUint32ToWord(
-          Int32Add(Word32Shl(Int32Sub(zero, field_index),
-                             Int32Constant(kTaggedSizeLog2 - 1)),
-                   Int32Constant(FixedArray::kHeaderSize - kTaggedSize))));
+      TNode<IntPtrT> offset = Signed(ChangeUint32ToWord(Int32Add(
+          Word32Shl(Int32Sub(zero, field_index),
+                    Int32Constant(kTaggedSizeLog2 - 1)),
+          Int32Constant(OFFSET_OF_DATA_START(FixedArray) - kTaggedSize))));
       result = LoadObjectField(properties, offset);
       Goto(&done);
     }
@@ -289,10 +292,10 @@ void AccessorAssembler::TryEnumeratedKeyedLoad(
     {
       TNode<PropertyArray> properties = CAST(LoadFastProperties(
           CAST(p->receiver_and_lookup_start_object()), true));
-      TNode<IntPtrT> offset = Signed(ChangeUint32ToWord(
-          Int32Add(Word32Shl(Int32Sub(zero, field_index),
-                             Int32Constant(kTaggedSizeLog2)),
-                   Int32Constant(FixedArray::kHeaderSize - kTaggedSize))));
+      TNode<IntPtrT> offset = Signed(ChangeUint32ToWord(Int32Add(
+          Word32Shl(Int32Sub(zero, field_index),
+                    Int32Constant(kTaggedSizeLog2)),
+          Int32Constant(OFFSET_OF_DATA_START(FixedArray) - kTaggedSize))));
       field = LoadObjectField(properties, offset);
       Goto(&loaded_field);
     }
@@ -1004,7 +1007,16 @@ void AccessorAssembler::HandleLoadICSmiHandlerLoadNamedCase(
   }
 
   BIND(rebox_double);
-  exit_point->Return(AllocateHeapNumberWithValue(var_double_value->value()));
+  {
+#ifdef V8_ENABLE_EXPERIMENTAL_UNDEFINED_DOUBLE
+    Label if_not_undefined(this);
+    GotoIfNot(IsDoubleUndefined(var_double_value->value()), &if_not_undefined);
+    exit_point->Return(UndefinedConstant());
+
+    BIND(&if_not_undefined);
+#endif  // V8_ENABLE_EXPERIMENTAL_UNDEFINED_DOUBLE
+    exit_point->Return(AllocateHeapNumberWithValue(var_double_value->value()));
+  }
 }
 
 void AccessorAssembler::HandleLoadICSmiHandlerHasNamedCase(
@@ -2024,18 +2036,19 @@ void AccessorAssembler::HandleStoreICProtoHandler(
       // when the property does not exist. The "existing property" case is
       // covered above by LookupOnLookupStartObject bit handling of the smi
       // handler.
-      Label slow(this);
+      Label slow_runtime_call(this);
       TNode<Map> receiver_map = LoadMap(CAST(p->receiver()));
       InvalidateValidityCellIfPrototype(receiver_map);
 
       TNode<PropertyDictionary> properties =
           CAST(LoadSlowProperties(CAST(p->receiver())));
       TNode<Name> name = CAST(p->name());
-      AddToDictionary<PropertyDictionary>(properties, name, p->value(), &slow);
+      AddToDictionary<PropertyDictionary>(properties, name, p->value(),
+                                          &slow_runtime_call);
       UpdateMayHaveInterestingProperty(properties, name);
       Return(p->value());
 
-      BIND(&slow);
+      BIND(&slow_runtime_call);
       TailCallRuntime(Runtime::kAddDictionaryProperty, p->context(),
                       p->receiver(), p->name(), p->value());
     }
@@ -2200,7 +2213,11 @@ void AccessorAssembler::HandleStoreICSmiHandlerCase(TNode<Word32T> handler_word,
     CSA_DCHECK(this, Word32Equal(field_representation,
                                  Int32Constant(Representation::kDouble)));
     Comment("double field checks");
-    TNode<Float64T> double_value = TryTaggedToFloat64(value, miss);
+    TNode<Float64T> double_value = TryTaggedToFloat64(value,
+#ifdef V8_ENABLE_EXPERIMENTAL_UNDEFINED_DOUBLE
+                                                      nullptr,
+#endif  // V8_ENABLE_EXPERIMENTAL_UNDEFINED_DOUBLE
+                                                      miss);
     CheckDescriptorConsidersNumbersMutable(handler_word, holder, miss);
 
     Comment("store double field");
@@ -2534,13 +2551,25 @@ void AccessorAssembler::EmitElementLoad(
     BIND(&if_fast_holey_double);
     {
       Comment("holey double elements");
-      TNode<Float64T> value =
-          LoadFixedDoubleArrayElement(CAST(elements), intptr_index, if_hole);
       if (access_mode == LoadAccessMode::kHas) {
+        LoadFixedDoubleArrayElement(CAST(elements), intptr_index, if_hole,
+                                    MachineType::None());
         exit_point->Return(TrueConstant());
       } else {
+#ifdef V8_ENABLE_EXPERIMENTAL_UNDEFINED_DOUBLE
+        Label if_undefined(this);
+        TNode<Float64T> value = LoadFixedDoubleArrayElementWithUndefinedCheck(
+            CAST(elements), intptr_index, &if_undefined, if_hole);
         *var_double_value = value;
         Goto(rebox_double);
+
+        BIND(&if_undefined);
+        exit_point->Return(UndefinedConstant());
+#else
+        *var_double_value =
+            LoadFixedDoubleArrayElement(CAST(elements), intptr_index, if_hole);
+        Goto(rebox_double);
+#endif  // V8_ENABLE_EXPERIMENTAL_UNDEFINED_DOUBLE
       }
     }
   }
@@ -2705,7 +2734,8 @@ void AccessorAssembler::EmitElementLoad(
         {
           Comment("FLOAT16_ELEMENTS");
           TNode<IntPtrT> index = WordShl(intptr_index, IntPtrConstant(1));
-          TNode<Float16T> raw_element = Load<Float16T>(data_ptr.value(), index);
+          TNode<Float16RawBitsT> raw_element =
+              Load<Float16RawBitsT>(data_ptr.value(), index);
           *var_double_value = ChangeFloat16ToFloat64(raw_element);
           Goto(rebox_double);
         }
@@ -2800,6 +2830,9 @@ void AccessorAssembler::GenericElementLoad(
                   &direct_exit);
 
   BIND(&rebox_double);
+#ifdef V8_ENABLE_EXPERIMENTAL_UNDEFINED_DOUBLE
+  GotoIf(IsDoubleUndefined(var_double_value.value()), &return_undefined);
+#endif  // V8_ENABLE_EXPERIMENTAL_UNDEFINED_DOUBLE
   Return(AllocateHeapNumberWithValue(var_double_value.value()));
 
   BIND(&if_oob);
@@ -3547,7 +3580,7 @@ void AccessorAssembler::ScriptContextTableLookup(
   TVARIABLE(IntPtrT, context_index, IntPtrConstant(-1));
   Label loop(this, &context_index);
   TNode<IntPtrT> num_script_contexts = PositiveSmiUntag(CAST(LoadObjectField(
-      script_context_table, ScriptContextTable::kLengthOffset)));
+      script_context_table, offsetof(ScriptContextTable, length_))));
   Goto(&loop);
 
   BIND(&loop);
@@ -4554,7 +4587,8 @@ void AccessorAssembler::LookupContext(LazyNode<Object> lazy_name,
                                       TNode<TaggedIndex> depth,
                                       LazyNode<TaggedIndex> lazy_slot,
                                       TNode<Context> context,
-                                      TypeofMode typeof_mode) {
+                                      TypeofMode typeof_mode,
+                                      ContextKind context_kind) {
   Label slowpath(this, Label::kDeferred);
 
   // Check for context extensions to allow the fast path.
@@ -4565,7 +4599,10 @@ void AccessorAssembler::LookupContext(LazyNode<Object> lazy_name,
   // Fast path does a normal load context.
   {
     auto slot = lazy_slot();
-    Return(LoadContextElement(slot_context, TaggedIndexToIntPtr(slot)));
+    Return(
+        context_kind == ContextKind::kScriptContext
+            ? LoadScriptContextElement(slot_context, TaggedIndexToIntPtr(slot))
+            : LoadContextElement(slot_context, TaggedIndexToIntPtr(slot)));
   }
 
   // Slow path when we have to call out to the runtime.
@@ -4580,20 +4617,22 @@ void AccessorAssembler::LookupContext(LazyNode<Object> lazy_name,
 }
 
 void AccessorAssembler::GenerateLookupContextTrampoline(
-    TypeofMode typeof_mode) {
+    TypeofMode typeof_mode, ContextKind context_kind) {
   using Descriptor = LookupTrampolineDescriptor;
   LookupContext([&] { return Parameter<Object>(Descriptor::kName); },
                 Parameter<TaggedIndex>(Descriptor::kDepth),
                 [&] { return Parameter<TaggedIndex>(Descriptor::kSlot); },
-                Parameter<Context>(Descriptor::kContext), typeof_mode);
+                Parameter<Context>(Descriptor::kContext), typeof_mode,
+                context_kind);
 }
 
-void AccessorAssembler::GenerateLookupContextBaseline(TypeofMode typeof_mode) {
+void AccessorAssembler::GenerateLookupContextBaseline(
+    TypeofMode typeof_mode, ContextKind context_kind) {
   using Descriptor = LookupBaselineDescriptor;
   LookupContext([&] { return Parameter<Object>(Descriptor::kName); },
                 Parameter<TaggedIndex>(Descriptor::kDepth),
                 [&] { return Parameter<TaggedIndex>(Descriptor::kSlot); },
-                LoadContextFromBaseline(), typeof_mode);
+                LoadContextFromBaseline(), typeof_mode, context_kind);
 }
 
 void AccessorAssembler::LookupGlobalIC(
@@ -5391,6 +5430,8 @@ void AccessorAssembler::BranchIfPrototypesHaveNoElements(
 
 #undef LOAD_KIND
 #undef STORE_KIND
+
+#include "src/codegen/undef-code-stub-assembler-macros.inc"
 
 }  // namespace internal
 }  // namespace v8

@@ -34,7 +34,7 @@ class JSSegments : public TorqueGeneratedJSSegments<JSSegments, JSObject> {
   // ecma402 #sec-createsegmentsobject
   V8_WARN_UNUSED_RESULT static MaybeHandle<JSSegments> Create(
       Isolate* isolate, DirectHandle<JSSegmenter> segmenter,
-      Handle<String> string);
+      DirectHandle<String> string);
 
   // ecma402 #sec-%segmentsprototype%.containing
   V8_WARN_UNUSED_RESULT static MaybeHandle<Object> Containing(
@@ -64,9 +64,9 @@ class JSSegments : public TorqueGeneratedJSSegments<JSSegments, JSObject> {
   // Bit positions in |flags|.
   DEFINE_TORQUE_GENERATED_JS_SEGMENT_ITERATOR_FLAGS()
 
-  static_assert(JSSegmenter::Granularity::GRAPHEME <= GranularityBits::kMax);
-  static_assert(JSSegmenter::Granularity::WORD <= GranularityBits::kMax);
-  static_assert(JSSegmenter::Granularity::SENTENCE <= GranularityBits::kMax);
+  static_assert(GranularityBits::is_valid(JSSegmenter::Granularity::GRAPHEME));
+  static_assert(GranularityBits::is_valid(JSSegmenter::Granularity::WORD));
+  static_assert(GranularityBits::is_valid(JSSegmenter::Granularity::SENTENCE));
 
   TQ_OBJECT_CONSTRUCTORS(JSSegments)
 };

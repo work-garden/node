@@ -24,20 +24,16 @@ MutablePageMetadata* MutablePageMetadata::FromHeapObject(Tagged<HeapObject> o) {
 
 void MutablePageMetadata::IncrementExternalBackingStoreBytes(
     ExternalBackingStoreType type, size_t amount) {
-#ifndef V8_ENABLE_THIRD_PARTY_HEAP
   base::CheckedIncrement(&external_backing_store_bytes_[static_cast<int>(type)],
                          amount);
   owner()->IncrementExternalBackingStoreBytes(type, amount);
-#endif
 }
 
 void MutablePageMetadata::DecrementExternalBackingStoreBytes(
     ExternalBackingStoreType type, size_t amount) {
-#ifndef V8_ENABLE_THIRD_PARTY_HEAP
   base::CheckedDecrement(&external_backing_store_bytes_[static_cast<int>(type)],
                          amount);
   owner()->DecrementExternalBackingStoreBytes(type, amount);
-#endif
 }
 
 void MutablePageMetadata::MoveExternalBackingStoreBytes(
@@ -61,6 +57,12 @@ AllocationSpace MutablePageMetadata::owner_identity() const {
 
 void MutablePageMetadata::SetOldGenerationPageFlags(MarkingMode marking_mode) {
   return Chunk()->SetOldGenerationPageFlags(marking_mode, owner_identity());
+}
+
+template <AccessMode mode>
+void MutablePageMetadata::ClearLiveness() {
+  marking_bitmap()->Clear<mode>();
+  SetLiveBytes(0);
 }
 
 }  // namespace internal

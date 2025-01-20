@@ -15,6 +15,7 @@ const common = require('./mutators/common.js');
 const db = require('./db.js');
 const exceptions = require('./exceptions.js');
 const random = require('./random.js');
+const runner = require('./runner.js');
 const sourceHelpers = require('./source_helpers.js');
 
 const { AddTryCatchMutator } = require('./mutators/try_catch.js');
@@ -72,6 +73,16 @@ class ScriptMutator {
     this.settings = settings;
   }
 
+  /**
+   * Returns a runner class that decides the composition of tests from
+   * different corpora.
+   */
+  runnerClass() {
+    // Choose a setup with the Fuzzilli corpus with a 50% chance.
+    return random.choose(
+        [runner.RandomCorpusRunner, runner.RandomCorpusRunnerWithFuzzilli]);
+  }
+
   _addMjsunitIfNeeded(dependencies, input) {
     if (dependencies.has('mjsunit')) {
       return;
@@ -91,7 +102,7 @@ class ScriptMutator {
     if (path.basename(mjsunitPath) == 'mjsunit') {
       mjsunitPath = path.join(mjsunitPath, 'mjsunit.js');
       dependencies.set('mjsunit', sourceHelpers.loadDependencyAbs(
-          input.baseDir, mjsunitPath));
+          input.corpus, mjsunitPath));
       return;
     }
 
@@ -120,7 +131,7 @@ class ScriptMutator {
     for (let i = shellJsPaths.length - 1; i >= 0; i--) {
       if (!dependencies.has(shellJsPaths[i])) {
         const dependency = sourceHelpers.loadDependencyAbs(
-            input.baseDir, shellJsPaths[i]);
+            input.corpus, shellJsPaths[i]);
         dependencies.set(shellJsPaths[i], dependency);
       }
     }

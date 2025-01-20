@@ -365,8 +365,34 @@ BlockProcessResult MaglevPrintingVisitor::PreProcessBasicBlock(
 
   int block_id = graph_labeller_->BlockId(block);
   os_ << "Block b" << block_id;
+  if (block->has_state() && block->state()->is_resumable_loop()) {
+    os_ << " (resumable)";
+  }
   if (block->is_exception_handler_block()) {
     os_ << " (exception handler)";
+  }
+  if (block->is_loop() && block->has_state()) {
+    if (block->state()->is_loop_with_peeled_iteration()) {
+      os_ << " peeled";
+    }
+    if (const LoopEffects* loop_effects = block->state()->loop_effects()) {
+      os_ << " (effects:";
+      if (loop_effects->unstable_aspects_cleared) {
+        if (loop_effects->unstable_aspects_cleared) {
+          os_ << " ua";
+        }
+        if (loop_effects->context_slot_written.size()) {
+          os_ << " c" << loop_effects->context_slot_written.size();
+        }
+        if (loop_effects->objects_written.size()) {
+          os_ << " o" << loop_effects->objects_written.size();
+        }
+        if (loop_effects->keys_cleared.size()) {
+          os_ << " k" << loop_effects->keys_cleared.size();
+        }
+      }
+      os_ << ")";
+    }
   }
   os_ << "\n";
 
@@ -506,6 +532,20 @@ void PrintVirtualObjects(std::ostream& os, std::vector<BasicBlock*> targets,
   os << "}\n";
 }
 
+void PrintDeoptInfoInputLocation(std::ostream& os,
+                                 std::vector<BasicBlock*> targets,
+                                 DeoptInfo* deopt_info,
+                                 MaglevGraphLabeller* graph_labeller,
+                                 int max_node_id) {
+#ifdef DEBUG
+  if (!v8_flags.print_maglev_deopt_verbose) return;
+  PrintVerticalArrows(os, targets);
+  PrintPadding(os, graph_labeller, max_node_id, 0);
+  os << "  input locations: " << deopt_info->input_locations() << " ("
+     << deopt_info->input_location_count() << " slots)\n";
+#endif  // DEBUG
+}
+
 void RecursivePrintEagerDeopt(std::ostream& os,
                               std::vector<BasicBlock*> targets,
                               const DeoptFrame& frame,
@@ -534,6 +574,8 @@ void PrintEagerDeopt(std::ostream& os, std::vector<BasicBlock*> targets,
                      int max_node_id) {
   EagerDeoptInfo* deopt_info = node->eager_deopt_info();
   InputLocation* current_input_location = deopt_info->input_locations();
+  PrintDeoptInfoInputLocation(os, targets, deopt_info, graph_labeller,
+                              max_node_id);
   RecursivePrintEagerDeopt(os, targets, deopt_info->top_frame(), graph_labeller,
                            max_node_id, current_input_location);
 }
@@ -570,6 +612,10 @@ void PrintLazyDeopt(std::ostream& os, std::vector<BasicBlock*> targets,
                     int max_node_id) {
   LazyDeoptInfo* deopt_info = node->lazy_deopt_info();
   InputLocation* current_input_location = deopt_info->input_locations();
+
+  PrintDeoptInfoInputLocation(os, targets, deopt_info, graph_labeller,
+                              max_node_id);
+
   const DeoptFrame& top_frame = deopt_info->top_frame();
   if (top_frame.parent()) {
     RecursivePrintLazyDeopt(os, targets, *top_frame.parent(), graph_labeller,

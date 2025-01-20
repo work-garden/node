@@ -145,6 +145,8 @@ class WasmGraphAssembler : public GraphAssembler {
     return LoadImmutable(rep, base, IntPtrConstant(offset));
   }
 
+  Node* LoadWasmCodePointer(Node* code_pointer);
+
   Node* StoreToObject(ObjectAccess access, Node* base, Node* offset,
                       Node* value);
 
@@ -163,14 +165,15 @@ class WasmGraphAssembler : public GraphAssembler {
   }
 
   Node* BuildDecodeSandboxedExternalPointer(Node* handle,
-                                            ExternalPointerTag tag,
+                                            ExternalPointerTagRange tag_range,
                                             Node* isolate_root);
   Node* BuildLoadExternalPointerFromObject(Node* object, int offset,
-                                           ExternalPointerTag tag,
+                                           ExternalPointerTagRange tag_range,
                                            Node* isolate_root);
 
   Node* BuildLoadExternalPointerFromObject(Node* object, int offset,
-                                           Node* index, ExternalPointerTag tag,
+                                           Node* index,
+                                           ExternalPointerTagRange tag_range,
                                            Node* isolate_root);
 
   Node* LoadImmutableTrustedPointerFromObject(Node* object, int offset,
@@ -226,10 +229,6 @@ class WasmGraphAssembler : public GraphAssembler {
   Node* LoadByteArrayElement(Node* byte_array, Node* index_intptr,
                              MachineType type);
 
-  Node* LoadExternalPointerArrayElement(Node* array, Node* index_intptr,
-                                        ExternalPointerTag tag,
-                                        Node* isolate_root);
-
   Node* StoreFixedArrayElement(Node* array, int index, Node* value,
                                ObjectAccess access);
 
@@ -245,8 +244,7 @@ class WasmGraphAssembler : public GraphAssembler {
         ObjectAccess(MachineType::AnyTagged(), kFullWriteBarrier));
   }
 
-  Node* LoadWeakArrayListElement(Node* fixed_array, Node* index_intptr,
-                                 MachineType type = MachineType::AnyTagged());
+  Node* LoadWeakFixedArrayElement(Node* fixed_array, Node* index_intptr);
 
   // Functions, SharedFunctionInfos, FunctionData.
 

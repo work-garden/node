@@ -149,7 +149,7 @@ void LiftoffAssembler::AlignFrameSize() {}
 
 void LiftoffAssembler::PatchPrepareStackFrame(
     int offset, SafepointTableBuilder* safepoint_table_builder,
-    bool feedback_vector_slot) {
+    bool feedback_vector_slot, size_t stack_param_slots) {
   int frame_size = GetTotalFrameSize() - 2 * kSystemPointerSize;
   // The frame setup builtin also pushes the feedback vector.
   if (feedback_vector_slot) {
@@ -261,6 +261,13 @@ void LiftoffAssembler::CheckTierUp(int declared_func_index, int budget_used,
   SubS32(budget, Operand(budget_used));
   StoreU32(budget, budget_addr);
   blt(ool_label);
+}
+
+Register LiftoffAssembler::LoadOldFramePointer() { return fp; }
+
+void LiftoffAssembler::CheckStackShrink() {
+  // TODO(irezvov): 42202153
+  UNIMPLEMENTED();
 }
 
 void LiftoffAssembler::LoadConstant(LiftoffRegister reg, WasmValue value) {
@@ -1287,7 +1294,8 @@ void LiftoffAssembler::LoadCallerFrameSlot(LiftoffRegister dst,
 
 void LiftoffAssembler::StoreCallerFrameSlot(LiftoffRegister src,
                                             uint32_t caller_slot_idx,
-                                            ValueKind kind) {
+                                            ValueKind kind,
+                                            Register frame_pointer) {
   int32_t offset = (caller_slot_idx + 1) * 8;
   switch (kind) {
     case kI32: {
@@ -3080,11 +3088,6 @@ void LiftoffAssembler::emit_s128_relaxed_laneselect(LiftoffRegister dst,
   emit_s128_select(dst, src1, src2, mask);
 }
 
-void LiftoffAssembler::set_trap_on_oob_mem64(Register index, uint64_t oob_size,
-                                             uint64_t oob_index) {
-  UNREACHABLE();
-}
-
 void LiftoffAssembler::StackCheck(Label* ool_code) {
   Register limit_address = ip;
   LoadStackLimit(limit_address, StackLimitKind::kInterruptStackLimit);
@@ -3135,17 +3138,7 @@ void LiftoffAssembler::CallCWithStackBuffer(
     const std::initializer_list<VarState> args, const LiftoffRegister* rets,
     ValueKind return_kind, ValueKind out_argument_kind, int stack_bytes,
     ExternalReference ext_ref) {
-  int total_size = RoundUp(stack_bytes, 8);
-
-  int size = total_size;
-  constexpr int kStackPageSize = 4 * KB;
-
-  // Reserve space in the stack.
-  while (size > kStackPageSize) {
-    lay(sp, MemOperand(sp, -kStackPageSize));
-    StoreU64(r0, MemOperand(sp));
-    size -= kStackPageSize;
-  }
+  int size = RoundUp(stack_bytes, 8);
 
   lay(sp, MemOperand(sp, -size));
 
@@ -3203,7 +3196,7 @@ void LiftoffAssembler::CallCWithStackBuffer(
         UNREACHABLE();
     }
   }
-  lay(sp, MemOperand(sp, total_size));
+  lay(sp, MemOperand(sp, size));
 }
 
 void LiftoffAssembler::CallC(const std::initializer_list<VarState> args,
@@ -3251,12 +3244,13 @@ void LiftoffAssembler::CallIndirect(const ValueKindSig* sig,
                                     compiler::CallDescriptor* call_descriptor,
                                     Register target) {
   DCHECK(target != no_reg);
-  Call(target);
+  CallWasmCodePointer(target);
 }
 
-void LiftoffAssembler::TailCallIndirect(Register target) {
+void LiftoffAssembler::TailCallIndirect(
+    compiler::CallDescriptor* call_descriptor, Register target) {
   DCHECK(target != no_reg);
-  Jump(target);
+  CallWasmCodePointer(target, CallJumpMode::kTailCall);
 }
 
 void LiftoffAssembler::CallBuiltin(Builtin builtin) {
@@ -3276,8 +3270,9 @@ void LiftoffAssembler::DeallocateStackSlot(uint32_t size) {
 
 void LiftoffAssembler::MaybeOSR() {}
 
-void LiftoffAssembler::emit_set_if_nan(Register dst, DoubleRegister src,
-                                       ValueKind kind) {
+void LiftoffAssembler::emit_store_nonzero_if_nan(Register dst,
+                                                 DoubleRegister src,
+                                                 ValueKind kind) {
   Label return_nan, done;
   if (kind == kF32) {
     cebr(src, src);
@@ -3293,10 +3288,11 @@ void LiftoffAssembler::emit_set_if_nan(Register dst, DoubleRegister src,
   bind(&done);
 }
 
-void LiftoffAssembler::emit_s128_set_if_nan(Register dst, LiftoffRegister src,
-                                            Register tmp_gp,
-                                            LiftoffRegister tmp_s128,
-                                            ValueKind lane_kind) {
+void LiftoffAssembler::emit_s128_store_nonzero_if_nan(Register dst,
+                                                      LiftoffRegister src,
+                                                      Register tmp_gp,
+                                                      LiftoffRegister tmp_s128,
+                                                      ValueKind lane_kind) {
   Label return_nan, done;
   if (lane_kind == kF32) {
     vfce(tmp_s128.fp(), src.fp(), src.fp(), Condition(1), Condition(0),
@@ -3313,6 +3309,10 @@ void LiftoffAssembler::emit_s128_set_if_nan(Register dst, LiftoffRegister src,
   mov(r0, Operand(1));
   StoreU32(r0, MemOperand(dst));
   bind(&done);
+}
+
+void LiftoffAssembler::emit_store_nonzero(Register dst) {
+  StoreU32(dst, MemOperand(dst));
 }
 
 void LiftoffStackSlots::Construct(int param_slots) {

@@ -48,7 +48,8 @@ let $t_imp =
 
 // Prepare corruption utilities.
 const kHeapObjectTag = 1;
-const kWasmTableObjectTypeOffset = 28;
+const kWasmTableType = Sandbox.getInstanceTypeIdFor('WASM_TABLE_OBJECT_TYPE');
+const kWasmTableObjectTypeOffset = Sandbox.getFieldOffset(kWasmTableType, 'raw_type');
 let memory = new DataView(new Sandbox.MemoryView(0, 0x100000000));
 function getPtr(obj) {
   return Sandbox.getAddressOf(obj) + kHeapObjectTag;
@@ -60,14 +61,14 @@ function setField(obj, offset, value) {
   memory.setUint32(obj + offset - kHeapObjectTag, value, true);
 }
 
-const kRef = 9;
+const kRef = 10;
 const kSmiTagSize = 1;
 const kHeapTypeShift = 5;
 
 // Put a WasmJSFunction into table1 while it still has type $sig1.
 table1.set(0, new WebAssembly.Function(
   {parameters: [], results: ['i64']},
-  () => BigInt(Sandbox.targetPage)));
+  () => 0x414141414141n));
 
 // Now set table1's type to $sig0.
 let t0 = getPtr(table0);

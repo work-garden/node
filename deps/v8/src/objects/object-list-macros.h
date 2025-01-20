@@ -68,7 +68,6 @@ namespace internal {
   V(ClosureFeedbackCellArray)                 \
   V(Code)                                     \
   V(Context)                                  \
-  V(ExternalPointerArray)                     \
   V(ExternalString)                           \
   V(FeedbackMetadata)                         \
   V(FeedbackVector)                           \
@@ -80,6 +79,7 @@ namespace internal {
   V(PreparseData)                             \
   V(PropertyArray)                            \
   V(ProtectedFixedArray)                      \
+  V(ProtectedWeakFixedArray)                  \
   V(RegExpMatchInfo)                          \
   V(ScopeInfo)                                \
   V(ScriptContextTable)                       \
@@ -109,13 +109,12 @@ namespace internal {
   V(BigIntWrapper)                              \
   V(Boolean)                                    \
   V(BooleanWrapper)                             \
-  V(ExternalPointerArray)                       \
   V(Callable)                                   \
   V(Cell)                                       \
   V(CompilationCacheTable)                      \
   V(ConsString)                                 \
   V(Constructor)                                \
-  V(ConstTrackingLetCell)                       \
+  V(ContextSidePropertyCell)                    \
   V(Context)                                    \
   V(CoverageInfo)                               \
   V(DataHandler)                                \
@@ -291,6 +290,7 @@ namespace internal {
   IF_WASM(V, WasmGlobalObject)                  \
   IF_WASM(V, WasmInstanceObject)                \
   IF_WASM(V, WasmMemoryObject)                  \
+  IF_WASM(V, WasmMemoryMapDescriptor)           \
   IF_WASM(V, WasmModuleObject)                  \
   IF_WASM(V, WasmNull)                          \
   IF_WASM(V, WasmObject)                        \
@@ -360,6 +360,7 @@ namespace internal {
         UNCOMPILED_DATA_WITHOUT_PREPARSE_DATA_WITH_JOB)                        \
   APPLY(V, SharedFunctionInfoWrapper, SHARED_FUNCTION_INFO_WRAPPER)            \
   APPLY(V, ProtectedFixedArray, PROTECTED_FIXED_ARRAY)                         \
+  APPLY(V, ProtectedWeakFixedArray, PROTECTED_WEAK_FIXED_ARRAY)                \
   APPLY(V, TrustedByteArray, TRUSTED_BYTE_ARRAY)                               \
   APPLY(V, TrustedFixedArray, TRUSTED_FIXED_ARRAY)                             \
   APPLY(V, TrustedForeign, TRUSTED_FOREIGN)                                    \
@@ -424,7 +425,7 @@ namespace internal {
   V(NonNullForeign)                          \
   V(ScriptContext)                           \
   V(WithContext)                             \
-  V(JSPrototype)                             \
+  V(JSInternalPrototypeBase)                 \
   V(JSObjectPrototype)                       \
   V(JSRegExpPrototype)                       \
   V(JSPromisePrototype)                      \

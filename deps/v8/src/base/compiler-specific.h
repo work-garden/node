@@ -98,10 +98,9 @@
 // do not support adding noexcept to default members.
 // Disabled on MSVC because constructors of standard containers are not noexcept
 // there.
-#if ((!defined(V8_CC_GNU) && !defined(V8_CC_MSVC) &&                        \
-      !defined(V8_TARGET_ARCH_MIPS64) && !defined(V8_TARGET_ARCH_PPC) &&    \
-      !defined(V8_TARGET_ARCH_PPC64) && !defined(V8_TARGET_ARCH_RISCV64) && \
-      !defined(V8_TARGET_ARCH_RISCV32)) ||                                  \
+#if ((!defined(V8_CC_GNU) && !defined(V8_CC_MSVC) &&                           \
+      !defined(V8_TARGET_ARCH_MIPS64) && !defined(V8_TARGET_ARCH_PPC64) &&     \
+      !defined(V8_TARGET_ARCH_RISCV64) && !defined(V8_TARGET_ARCH_RISCV32)) || \
      defined(__clang__))
 #define V8_NOEXCEPT noexcept
 #else
@@ -140,13 +139,6 @@
 #define V8_DONT_STRIP_SYMBOL __attribute__((used, retain))
 #else
 #define V8_DONT_STRIP_SYMBOL
-#endif
-
-#ifdef __cpp_concepts
-#define HAS_CPP_CONCEPTS 1
-#define CONCEPT(name) name
-#else
-#define CONCEPT(name) typename
 #endif
 
 #if __cplusplus >= 202002L

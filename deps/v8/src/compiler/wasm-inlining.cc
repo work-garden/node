@@ -39,7 +39,7 @@ void WasmInliner::Trace(Node* call, int inlinee, const char* decision) {
 }
 
 int WasmInliner::GetCallCount(Node* call) {
-  if (!env_->enabled_features.has_inlining() && !env_->module->is_wasm_gc) {
+  if (!v8_flags.wasm_inlining) {
     return 0;
   }
   return mcgraph()->GetCallCount(call->id());
@@ -102,9 +102,8 @@ Reduction WasmInliner::ReduceCall(Node* call) {
 
   // If liftoff ran and collected call counts, only inline calls that have been
   // invoked often, except for truly tiny functions.
-  if (v8_flags.liftoff &&
-      (env_->enabled_features.has_inlining() || env_->module->is_wasm_gc) &&
-      wire_byte_size >= 12 && call_count < min_count_for_inlining) {
+  if (v8_flags.liftoff && v8_flags.wasm_inlining && wire_byte_size >= 12 &&
+      call_count < min_count_for_inlining) {
     Trace(call, inlinee_index, "not called often enough");
     return NoChange();
   }
@@ -216,7 +215,7 @@ void WasmInliner::Finalize() {
     base::Vector<const uint8_t> function_bytes =
         data_.wire_bytes_storage->GetCode(inlinee->code);
 
-    bool is_shared = module()->types[inlinee->sig_index].is_shared;
+    bool is_shared = module()->type(inlinee->sig_index).is_shared;
 
     const wasm::FunctionBody inlinee_body{inlinee->sig, inlinee->code.offset(),
                                           function_bytes.begin(),
@@ -261,7 +260,7 @@ void WasmInliner::Finalize() {
       wasm::BuildTFGraph(zone()->allocator(), env_->enabled_features, module(),
                          &builder, detected_, inlinee_body, &inlinee_loop_infos,
                          &dangling_exceptions, data_.node_origins,
-                         candidate.inlinee_index, data_.assumptions,
+                         candidate.inlinee_index, data_.assumptions.get(),
                          NodeProperties::IsExceptionalCall(call)
                              ? wasm::kInlinedHandledCall
                              : wasm::kInlinedNonHandledCall);

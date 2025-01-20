@@ -472,6 +472,27 @@ TNode<Boolean> JSGraphAssembler::ObjectIsUndetectable(TNode<Object> value) {
       graph()->NewNode(simplified()->ObjectIsUndetectable(), value));
 }
 
+Node* JSGraphAssembler::BooleanNot(Node* cond) {
+  return AddNode(graph()->NewNode(simplified()->BooleanNot(), cond));
+}
+
+Node* JSGraphAssembler::CheckSmi(Node* value, const FeedbackSource& feedback) {
+  return AddNode(graph()->NewNode(simplified()->CheckSmi(feedback), value,
+                                  effect(), control()));
+}
+
+Node* JSGraphAssembler::CheckNumberFitsInt32(Node* value,
+                                             const FeedbackSource& feedback) {
+  return AddNode(graph()->NewNode(simplified()->CheckNumberFitsInt32(feedback),
+                                  value, effect(), control()));
+}
+
+Node* JSGraphAssembler::CheckNumber(Node* value,
+                                    const FeedbackSource& feedback) {
+  return AddNode(graph()->NewNode(simplified()->CheckNumber(feedback), value,
+                                  effect(), control()));
+}
+
 Node* JSGraphAssembler::CheckIf(Node* cond, DeoptimizeReason reason,
                                 const FeedbackSource& feedback) {
   return AddNode(graph()->NewNode(simplified()->CheckIf(reason, feedback), cond,
@@ -1229,6 +1250,10 @@ void GraphAssembler::BranchWithCriticalSafetyCheck(
   }
 
   BranchImpl(default_branch_semantics_, condition, if_true, if_false, hint);
+}
+
+void GraphAssembler::RuntimeAbort(AbortReason reason) {
+  AddNode(graph()->NewNode(simplified()->RuntimeAbort(reason)));
 }
 
 void GraphAssembler::ConnectUnreachableToEnd() {

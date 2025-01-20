@@ -14,6 +14,8 @@
 namespace v8 {
 namespace internal {
 
+#include "src/codegen/define-code-stub-assembler-macros.inc"
+
 using compiler::CodeAssemblerTester;
 using compiler::FunctionTester;
 using compiler::Node;
@@ -41,7 +43,7 @@ void TestStubCacheOffsetCalculation(StubCache::Table table) {
     m.Return(m.SmiTag(result));
   }
 
-  Handle<Code> code = data.GenerateCode();
+  DirectHandle<Code> code = data.GenerateCode();
   FunctionTester ft(code, kNumParams);
 
   Factory* factory = isolate->factory();
@@ -147,7 +149,7 @@ TEST(TryProbeStubCache) {
     m.Return(m.BooleanConstant(false));
   }
 
-  Handle<Code> code = data.GenerateCode();
+  DirectHandle<Code> code = data.GenerateCode();
   FunctionTester ft(code, kNumParams);
 
   std::vector<Handle<Name>> names;
@@ -249,6 +251,8 @@ TEST(TryProbeStubCache) {
   // Ensure we performed both kind of queries.
   CHECK(queried_existing && queried_non_existing);
 }
+
+#include "src/codegen/undef-code-stub-assembler-macros.inc"
 
 }  // namespace internal
 }  // namespace v8

@@ -301,10 +301,6 @@ class PoolTest : public                                     //
   PoolTest(const PoolTest&) = delete;
   PoolTest& operator=(const PoolTest&) = delete;
 
-  static void FreeProcessWidePtrComprCageForTesting() {
-    IsolateGroup::ReleaseGlobal();
-  }
-
   static void DoMixinSetUp() {
     CHECK_NULL(tracking_page_allocator_);
     old_page_allocator_ = GetPlatformPageAllocator();
@@ -314,30 +310,21 @@ class PoolTest : public                                     //
              SetPlatformPageAllocatorForTesting(tracking_page_allocator_));
     old_sweeping_flag_ = i::v8_flags.concurrent_sweeping;
     i::v8_flags.concurrent_sweeping = false;
-#ifndef V8_COMPRESS_POINTERS_IN_MULTIPLE_CAGES
-    // Reinitialize the process-wide pointer cage so it can pick up the
-    // TrackingPageAllocator.
-    // The pointer cage must be destroyed before the sandbox.
-    FreeProcessWidePtrComprCageForTesting();
+    IsolateGroup::ReleaseDefault();
 #ifdef V8_ENABLE_SANDBOX
     // Reinitialze the sandbox so it uses the TrackingPageAllocator.
-    GetProcessWideSandbox()->TearDown();
+    Sandbox::current()->TearDown();
     constexpr bool use_guard_regions = false;
-    CHECK(GetProcessWideSandbox()->Initialize(
+    CHECK(Sandbox::current()->Initialize(
         tracking_page_allocator_, kSandboxMinimumSize, use_guard_regions));
 #endif
     IsolateGroup::InitializeOncePerProcess();
-#endif
   }
 
   static void DoMixinTearDown() {
-#ifndef V8_COMPRESS_POINTERS_IN_MULTIPLE_CAGES
-    // Free the process-wide cage reservation, otherwise the pages won't be
-    // freed until process teardown.
-    FreeProcessWidePtrComprCageForTesting();
-#endif
+    IsolateGroup::ReleaseDefault();
 #ifdef V8_ENABLE_SANDBOX
-    GetProcessWideSandbox()->TearDown();
+    Sandbox::current()->TearDown();
 #endif
     i::v8_flags.concurrent_sweeping = old_sweeping_flag_;
     CHECK(tracking_page_allocator_->IsEmpty());
@@ -378,7 +365,6 @@ PoolTestMixin<TMixin>::~PoolTestMixin() {
 
 // See v8:5945.
 TEST_F(PoolTest, UnmapOnTeardown) {
-  if (v8_flags.enable_third_party_heap) return;
   PageMetadata* page =
       allocator()->AllocatePage(MemoryAllocator::AllocationMode::kRegular,
                                 static_cast<PagedSpace*>(heap()->old_space()),

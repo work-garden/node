@@ -37,8 +37,8 @@ class JSListFormat
   // Creates relative time format object with properties derived from input
   // locales and options.
   static MaybeHandle<JSListFormat> New(Isolate* isolate, DirectHandle<Map> map,
-                                       Handle<Object> locales,
-                                       Handle<Object> options);
+                                       DirectHandle<Object> locales,
+                                       DirectHandle<Object> options);
 
   static Handle<JSObject> ResolvedOptions(
       Isolate* isolate, DirectHandle<JSListFormat> format_holder);
@@ -55,8 +55,8 @@ class JSListFormat
 
   V8_EXPORT_PRIVATE static const std::set<std::string>& GetAvailableLocales();
 
-  Handle<String> StyleAsString() const;
-  Handle<String> TypeAsString() const;
+  Handle<String> StyleAsString(Isolate* isolate) const;
+  Handle<String> TypeAsString(Isolate* isolate) const;
 
   // ListFormat accessors.
   DECL_ACCESSORS(icu_formatter, Tagged<Managed<icu::ListFormatter>>)
@@ -86,12 +86,12 @@ class JSListFormat
   // Bit positions in |flags|.
   DEFINE_TORQUE_GENERATED_JS_LIST_FORMAT_FLAGS()
 
-  static_assert(Style::LONG <= StyleBits::kMax);
-  static_assert(Style::SHORT <= StyleBits::kMax);
-  static_assert(Style::NARROW <= StyleBits::kMax);
-  static_assert(Type::CONJUNCTION <= TypeBits::kMax);
-  static_assert(Type::DISJUNCTION <= TypeBits::kMax);
-  static_assert(Type::UNIT <= TypeBits::kMax);
+  static_assert(StyleBits::is_valid(Style::LONG));
+  static_assert(StyleBits::is_valid(Style::SHORT));
+  static_assert(StyleBits::is_valid(Style::NARROW));
+  static_assert(TypeBits::is_valid(Type::CONJUNCTION));
+  static_assert(TypeBits::is_valid(Type::DISJUNCTION));
+  static_assert(TypeBits::is_valid(Type::UNIT));
 
   DECL_PRINTER(JSListFormat)
 

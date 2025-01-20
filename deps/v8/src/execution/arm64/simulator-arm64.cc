@@ -321,12 +321,17 @@ uintptr_t Simulator::StackLimit(uintptr_t c_limit) const {
   return stack_limit_ + kAdditionalStackMargin;
 }
 
-base::Vector<uint8_t> Simulator::GetCurrentStackView() const {
+void Simulator::SetStackLimit(uintptr_t limit) {
+  stack_limit_ = static_cast<uintptr_t>(limit - kAdditionalStackMargin);
+}
+
+base::Vector<uint8_t> Simulator::GetCentralStackView() const {
   // We do not add an additional safety margin as above in
   // Simulator::StackLimit, as users of this method are expected to add their
   // own margin.
-  return base::VectorOf(reinterpret_cast<uint8_t*>(stack_limit_),
-                        UsableStackSize());
+  return base::VectorOf(
+      reinterpret_cast<uint8_t*>(stack_ + kStackProtectionSize),
+      UsableStackSize());
 }
 
 void Simulator::SetRedirectInstruction(Instruction* instruction) {
@@ -1094,7 +1099,7 @@ int Simulator::CodeFromName(const char* name) {
 template <typename T>
 T Simulator::AddWithCarry(bool set_flags, T left, T right, int carry_in) {
   // Use unsigned types to avoid implementation-defined overflow behaviour.
-  static_assert(std::is_unsigned<T>::value, "operands must be unsigned");
+  static_assert(std::is_unsigned_v<T>, "operands must be unsigned");
   static_assert((sizeof(T) == kWRegSize) || (sizeof(T) == kXRegSize),
                 "Only W- or X-sized operands are tested");
 
@@ -1125,7 +1130,7 @@ T Simulator::AddWithCarry(bool set_flags, T left, T right, int carry_in) {
 template <typename T>
 void Simulator::AddSubWithCarry(Instruction* instr) {
   // Use unsigned types to avoid implementation-defined overflow behaviour.
-  static_assert(std::is_unsigned<T>::value, "operands must be unsigned");
+  static_assert(std::is_unsigned_v<T>, "operands must be unsigned");
 
   T op2 = reg<T>(instr->Rm());
   T new_val;
@@ -1168,7 +1173,7 @@ sim_uint128_t Simulator::Eor128(sim_uint128_t x, sim_uint128_t y) const {
 
 template <typename T>
 T Simulator::ShiftOperand(T value, Shift shift_type, unsigned amount) {
-  using unsignedT = typename std::make_unsigned<T>::type;
+  using unsignedT = std::make_unsigned_t<T>;
 
   if (amount == 0) {
     return value;
@@ -1199,7 +1204,7 @@ T Simulator::ExtendValue(T value, Extend extend_type, unsigned left_shift) {
   const unsigned kSignExtendBShift = (sizeof(T) - 1) * 8;
   const unsigned kSignExtendHShift = (sizeof(T) - 2) * 8;
   const unsigned kSignExtendWShift = (sizeof(T) - 4) * 8;
-  using unsignedT = typename std::make_unsigned<T>::type;
+  using unsignedT = std::make_unsigned_t<T>;
 
   switch (extend_type) {
     case UXTB:
@@ -1870,7 +1875,7 @@ void Simulator::VisitCompareBranch(Instruction* instr) {
 template <typename T>
 void Simulator::AddSubHelper(Instruction* instr, T op2) {
   // Use unsigned types to avoid implementation-defined overflow behaviour.
-  static_assert(std::is_unsigned<T>::value, "operands must be unsigned");
+  static_assert(std::is_unsigned_v<T>, "operands must be unsigned");
 
   bool set_flags = instr->FlagsUpdate();
   T new_val = 0;
@@ -2016,7 +2021,7 @@ void Simulator::VisitConditionalCompareImmediate(Instruction* instr) {
 template <typename T>
 void Simulator::ConditionalCompareHelper(Instruction* instr, T op2) {
   // Use unsigned types to avoid implementation-defined overflow behaviour.
-  static_assert(std::is_unsigned<T>::value, "operands must be unsigned");
+  static_assert(std::is_unsigned_v<T>, "operands must be unsigned");
 
   T op1 = reg<T>(instr->Rn());
 
@@ -3070,7 +3075,7 @@ void Simulator::DataProcessing2Source(Instruction* instr) {
     }
     case UDIV_w:
     case UDIV_x: {
-      using unsignedT = typename std::make_unsigned<T>::type;
+      using unsignedT = std::make_unsigned_t<T>;
       unsignedT rn = static_cast<unsignedT>(reg<T>(instr->Rn()));
       unsignedT rm = static_cast<unsignedT>(reg<T>(instr->Rm()));
       if (rm == 0) {
@@ -3178,7 +3183,7 @@ void Simulator::VisitDataProcessing3Source(Instruction* instr) {
 
 template <typename T>
 void Simulator::BitfieldHelper(Instruction* instr) {
-  using unsignedT = typename std::make_unsigned<T>::type;
+  using unsignedT = std::make_unsigned_t<T>;
   T reg_size = sizeof(T) * 8;
   T R = instr->ImmR();
   T S = instr->ImmS();
@@ -3865,11 +3870,13 @@ bool Simulator::PrintValue(const char* desc) {
   if (i < 0 || static_cast<unsigned>(i) >= kNumberOfVRegisters) return false;
 
   if (desc[0] == 'v') {
-    PrintF(stream_, "%s %s:%s 0x%016" PRIx64 "%s (%s%s:%s %g%s %s:%s %g%s)\n",
-           clr_vreg_name, VRegNameForCode(i), clr_vreg_value,
-           base::bit_cast<uint64_t>(dreg(i)), clr_normal, clr_vreg_name,
-           DRegNameForCode(i), clr_vreg_value, dreg(i), clr_vreg_name,
-           SRegNameForCode(i), clr_vreg_value, sreg(i), clr_normal);
+    struct qreg_t reg = qreg(i);
+    PrintF(stream_, "%s %s:%s (%s0x%02x%s", clr_vreg_name, VRegNameForCode(i),
+           clr_normal, clr_vreg_value, reg.val[0], clr_normal);
+    for (int b = 1; b < kQRegSize; b++) {
+      PrintF(stream_, ", %s0x%02x%s", clr_vreg_value, reg.val[b], clr_normal);
+    }
+    PrintF(stream_, ")\n");
     return true;
   } else if (desc[0] == 'd') {
     PrintF(stream_, "%s %s:%s %g%s\n", clr_vreg_name, DRegNameForCode(i),
@@ -6523,7 +6530,13 @@ void Simulator::VisitNEONPerm(Instruction* instr) {
 
 void Simulator::DoSwitchStackLimit(Instruction* instr) {
   const int64_t stack_limit = xreg(16);
-  stack_limit_ = static_cast<uintptr_t>(stack_limit);
+  // stack_limit represents js limit and adjusted by extra runaway gap.
+  // Also, stack switching code reads js_limit generated by
+  // {Simulator::StackLimit} and then resets it back here.
+  // So without adjusting back incoming value by safety gap
+  // {stack_limit_} will be shortened by kAdditionalStackMargin yielding
+  // positive feedback loop.
+  SetStackLimit(stack_limit);
 }
 
 void Simulator::DoPrintf(Instruction* instr) {

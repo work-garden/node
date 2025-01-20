@@ -13,12 +13,13 @@
 #include "src/deoptimizer/deoptimizer.h"
 #include "src/heap/heap-write-barrier-inl.h"
 #include "src/objects/code-inl.h"
+#include "src/sandbox/js-dispatch-table.h"
 #include "src/snapshot/embedded/embedded-data-inl.h"
 
 namespace v8 {
 namespace internal {
 
-using namespace detail;
+using namespace detail;  // NOLINT(build/namespaces)
 
 uint32_t RelocInfoWriter::WriteLongPCJump(uint32_t pc_delta) {
   // Return if the pc_delta can fit in kSmallPCDeltaBits bits.
@@ -39,8 +40,8 @@ void RelocInfoWriter::WriteShortTaggedPC(uint32_t pc_delta, int tag) {
   *--pos_ = pc_delta << kTagBits | tag;
 }
 
-void RelocInfoWriter::WriteShortData(intptr_t data_delta) {
-  *--pos_ = static_cast<uint8_t>(data_delta);
+void RelocInfoWriter::WriteShortData(uint8_t data_delta) {
+  *--pos_ = data_delta;
 }
 
 void RelocInfoWriter::WriteMode(RelocInfo::Mode rmode) {
@@ -86,12 +87,11 @@ void RelocInfoWriter::Write(const RelocInfo* rinfo) {
     WriteModeAndPC(pc_delta, rmode);
     if (RelocInfo::IsDeoptReason(rmode)) {
       DCHECK_LT(rinfo->data(), 1 << kBitsPerByte);
-      WriteShortData(rinfo->data());
+      WriteShortData(static_cast<uint8_t>(rinfo->data()));
     } else if (RelocInfo::IsConstPool(rmode) ||
                RelocInfo::IsVeneerPool(rmode) || RelocInfo::IsDeoptId(rmode) ||
                RelocInfo::IsDeoptPosition(rmode) ||
-               RelocInfo::IsDeoptNodeId(rmode) ||
-               RelocInfo::IsRelativeSwitchTableEntry(rmode)) {
+               RelocInfo::IsDeoptNodeId(rmode)) {
       WriteIntData(static_cast<int>(rinfo->data()));
     }
   }
@@ -162,8 +162,7 @@ void RelocIteratorBase<RelocInfoT>::next() {
                    RelocInfo::IsVeneerPool(rmode) ||
                    RelocInfo::IsDeoptId(rmode) ||
                    RelocInfo::IsDeoptPosition(rmode) ||
-                   RelocInfo::IsDeoptNodeId(rmode) ||
-                   RelocInfo::IsRelativeSwitchTableEntry(rmode)) {
+                   RelocInfo::IsDeoptNodeId(rmode)) {
           if (SetMode(rmode)) {
             AdvanceReadInt();
             return;
@@ -243,10 +242,10 @@ bool RelocInfo::OffHeapTargetIsCodedSpecially() {
 #if defined(V8_TARGET_ARCH_ARM) || defined(V8_TARGET_ARCH_ARM64) || \
     defined(V8_TARGET_ARCH_X64)
   return false;
-#elif defined(V8_TARGET_ARCH_IA32) || defined(V8_TARGET_ARCH_MIPS64) || \
-    defined(V8_TARGET_ARCH_PPC) || defined(V8_TARGET_ARCH_PPC64) ||     \
-    defined(V8_TARGET_ARCH_S390) || defined(V8_TARGET_ARCH_RISCV64) ||  \
-    defined(V8_TARGET_ARCH_LOONG64) || defined(V8_TARGET_ARCH_RISCV32)
+#elif defined(V8_TARGET_ARCH_IA32) || defined(V8_TARGET_ARCH_MIPS64) ||   \
+    defined(V8_TARGET_ARCH_PPC64) || defined(V8_TARGET_ARCH_S390X) ||     \
+    defined(V8_TARGET_ARCH_RISCV64) || defined(V8_TARGET_ARCH_LOONG64) || \
+    defined(V8_TARGET_ARCH_RISCV32)
   return true;
 #endif
 }
@@ -259,7 +258,7 @@ Address RelocInfo::wasm_call_address() const {
 void WritableRelocInfo::set_wasm_call_address(Address address) {
   DCHECK_EQ(rmode_, WASM_CALL);
   Assembler::set_target_address_at(pc_, constant_pool_, address,
-                                   SKIP_ICACHE_FLUSH);
+                                   &jit_allocation_, SKIP_ICACHE_FLUSH);
 }
 
 Address RelocInfo::wasm_stub_call_address() const {
@@ -270,7 +269,7 @@ Address RelocInfo::wasm_stub_call_address() const {
 void WritableRelocInfo::set_wasm_stub_call_address(Address address) {
   DCHECK_EQ(rmode_, WASM_STUB_CALL);
   Assembler::set_target_address_at(pc_, constant_pool_, address,
-                                   SKIP_ICACHE_FLUSH);
+                                   &jit_allocation_, SKIP_ICACHE_FLUSH);
 }
 
 uint32_t RelocInfo::wasm_canonical_sig_id() const {
@@ -281,7 +280,7 @@ uint32_t RelocInfo::wasm_canonical_sig_id() const {
 void WritableRelocInfo::set_wasm_canonical_sig_id(uint32_t canonical_sig_id) {
   DCHECK_EQ(rmode_, WASM_CANONICAL_SIG_ID);
   Assembler::set_uint32_constant_at(pc_, constant_pool_, canonical_sig_id,
-                                    SKIP_ICACHE_FLUSH);
+                                    &jit_allocation_, SKIP_ICACHE_FLUSH);
 }
 
 void WritableRelocInfo::set_target_address(Address target,
@@ -289,7 +288,7 @@ void WritableRelocInfo::set_target_address(Address target,
   DCHECK(IsCodeTargetMode(rmode_) || IsNearBuiltinEntry(rmode_) ||
          IsWasmCall(rmode_));
   Assembler::set_target_address_at(pc_, constant_pool_, target,
-                                   icache_flush_mode);
+                                   &jit_allocation_, icache_flush_mode);
 }
 
 void WritableRelocInfo::set_target_address(Tagged<InstructionStream> host,
@@ -300,14 +299,14 @@ void WritableRelocInfo::set_target_address(Tagged<InstructionStream> host,
   if (IsCodeTargetMode(rmode_) && !v8_flags.disable_write_barriers) {
     Tagged<InstructionStream> target_code =
         InstructionStream::FromTargetAddress(target);
-    WriteBarrierForCode(host, this, target_code, write_barrier_mode);
+    WriteBarrier::ForRelocInfo(host, this, target_code, write_barrier_mode);
   }
 }
 
 void RelocInfo::set_off_heap_target_address(Address target,
                                             ICacheFlushMode icache_flush_mode) {
   DCHECK(IsCodeTargetMode(rmode_));
-  Assembler::set_target_address_at(pc_, constant_pool_, target,
+  Assembler::set_target_address_at(pc_, constant_pool_, target, nullptr,
                                    icache_flush_mode);
 }
 
@@ -348,8 +347,8 @@ const char* RelocInfo::RelocModeName(RelocInfo::Mode rmode) {
       return "internal reference";
     case INTERNAL_REFERENCE_ENCODED:
       return "encoded internal reference";
-    case RELATIVE_SWITCH_TABLE_ENTRY:
-      return "relative switch table entry";
+    case JS_DISPATCH_HANDLE:
+      return "js dispatch handle";
     case OFF_HEAP_TARGET:
       return "off heap target";
     case NEAR_BUILTIN_ENTRY:
@@ -374,6 +373,8 @@ const char* RelocInfo::RelocModeName(RelocInfo::Mode rmode) {
       return "wasm stub call";
     case WASM_CANONICAL_SIG_ID:
       return "wasm canonical signature id";
+    case WASM_CODE_POINTER_TABLE_ENTRY:
+      return "wasm code pointer table entry";
     case NUMBER_OF_MODES:
     case PC_JUMP:
       UNREACHABLE();
@@ -401,6 +402,19 @@ void RelocInfo::Print(Isolate* isolate, std::ostream& os) {
     }
     os << " (" << reinterpret_cast<const void*>(target_external_reference())
        << ")";
+  } else if (rmode_ == JS_DISPATCH_HANDLE) {
+#ifdef V8_ENABLE_LEAPTIERING
+    Tagged<Code> target_code =
+        IsolateGroup::current()->js_dispatch_table()->GetCode(
+            js_dispatch_handle());
+    os << " (" << CodeKindToString(target_code->kind());
+    if (Builtins::IsBuiltin(target_code)) {
+      os << " " << Builtins::name(target_code->builtin_id());
+    }
+    os << ")  (" << reinterpret_cast<const void*>(target_address()) << ")";
+#else
+    UNREACHABLE();
+#endif
   } else if (IsCodeTargetMode(rmode_)) {
     const Address code_target = target_address();
     Tagged<Code> target_code = Code::FromTargetAddress(code_target);
@@ -458,6 +472,19 @@ void RelocInfo::Verify(Isolate* isolate) {
       CHECK_LT(target, lookup_result->instruction_end());
       break;
     }
+    case JS_DISPATCH_HANDLE: {
+#ifdef V8_ENABLE_LEAPTIERING
+      JSDispatchTable::Space* space =
+          isolate->heap()->js_dispatch_table_space();
+      JSDispatchTable::Space* ro_space =
+          isolate->read_only_heap()->js_dispatch_table_space();
+      IsolateGroup::current()->js_dispatch_table()->VerifyEntry(
+          js_dispatch_handle(), space, ro_space);
+      break;
+#else
+      UNREACHABLE();
+#endif
+    }
     case OFF_HEAP_TARGET: {
       Address addr = target_off_heap_target();
       CHECK_NE(addr, kNullAddress);
@@ -483,8 +510,8 @@ void RelocInfo::Verify(Isolate* isolate) {
     case VENEER_POOL:
     case WASM_CALL:
     case NO_INFO:
-    case RELATIVE_SWITCH_TABLE_ENTRY:
     case WASM_CANONICAL_SIG_ID:
+    case WASM_CODE_POINTER_TABLE_ENTRY:
       break;
     case NUMBER_OF_MODES:
     case PC_JUMP:

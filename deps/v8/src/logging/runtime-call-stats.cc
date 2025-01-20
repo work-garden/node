@@ -141,7 +141,7 @@ RuntimeCallStats::RuntimeCallStats(ThreadType thread_type)
 #define CALL_RUNTIME_COUNTER(name, nargs, ressize) #name,
       FOR_EACH_INTRINSIC(CALL_RUNTIME_COUNTER)  //
 #undef CALL_RUNTIME_COUNTER
-#define CALL_BUILTIN_COUNTER(name) #name,
+#define CALL_BUILTIN_COUNTER(name, Argc) #name,
       BUILTIN_LIST_C(CALL_BUILTIN_COUNTER)  //
 #undef CALL_BUILTIN_COUNTER
 #define CALL_BUILTIN_COUNTER(name) "API_" #name,
@@ -293,7 +293,7 @@ WorkerThreadRuntimeCallStats::~WorkerThreadRuntimeCallStats() {
 }
 
 base::Thread::LocalStorageKey WorkerThreadRuntimeCallStats::GetKey() {
-  base::MutexGuard lock(&mutex_);
+  base::SpinningMutexGuard lock(&mutex_);
   if (!tls_key_) tls_key_ = base::Thread::CreateThreadLocalKey();
   return *tls_key_;
 }
@@ -305,14 +305,14 @@ RuntimeCallStats* WorkerThreadRuntimeCallStats::NewTable() {
       std::make_unique<RuntimeCallStats>(RuntimeCallStats::kWorkerThread);
   RuntimeCallStats* result = new_table.get();
 
-  base::MutexGuard lock(&mutex_);
+  base::SpinningMutexGuard lock(&mutex_);
   tables_.push_back(std::move(new_table));
   return result;
 }
 
 void WorkerThreadRuntimeCallStats::AddToMainTable(
     RuntimeCallStats* main_call_stats) {
-  base::MutexGuard lock(&mutex_);
+  base::SpinningMutexGuard lock(&mutex_);
   for (auto& worker_stats : tables_) {
     DCHECK_NE(main_call_stats, worker_stats.get());
     main_call_stats->Add(worker_stats.get());

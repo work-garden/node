@@ -954,7 +954,7 @@ void InstructionSelectorT<Adapter>::VisitLoadLane(node_t node) {
     // IA32 supports unaligned loads.
     DCHECK_NE(params.kind, MemoryAccessKind::kUnaligned);
     // Trap handler is not supported on IA32.
-    DCHECK_NE(params.kind, MemoryAccessKind::kProtected);
+    DCHECK_NE(params.kind, MemoryAccessKind::kProtectedByTrapHandler);
   }
 
   IA32OperandGeneratorT<Adapter> g(this);
@@ -1079,7 +1079,7 @@ void InstructionSelectorT<TurbofanAdapter>::VisitLoadTransform(Node* node) {
   // IA32 supports unaligned loads.
   DCHECK_NE(params.kind, MemoryAccessKind::kUnaligned);
   // Trap handler is not supported on IA32.
-  DCHECK_NE(params.kind, MemoryAccessKind::kProtected);
+  DCHECK_NE(params.kind, MemoryAccessKind::kProtectedByTrapHandler);
 
   VisitLoad(node, node, opcode);
 }
@@ -1811,7 +1811,6 @@ void InstructionSelectorT<Adapter>::VisitWord32Ror(node_t node) {
   V(Word32Popcnt, kIA32Popcnt)                               \
   V(SignExtendWord8ToInt32, kIA32Movsxbl)                    \
   V(SignExtendWord16ToInt32, kIA32Movsxwl)                   \
-  IF_WASM(V, F64x2Sqrt, kIA32F64x2Sqrt)
 
 #define RO_WITH_TEMP_OP_T_LIST(V) V(ChangeUint32ToFloat64, kIA32Uint32ToFloat64)
 
@@ -1841,25 +1840,18 @@ void InstructionSelectorT<Adapter>::VisitWord32Ror(node_t node) {
   IF_WASM(V, F64x2Floor, kIA32F64x2Round | MiscField::encode(kRoundDown))      \
   IF_WASM(V, F64x2Trunc, kIA32F64x2Round | MiscField::encode(kRoundToZero))    \
   IF_WASM(V, F64x2NearestInt,                                                  \
-          kIA32F64x2Round | MiscField::encode(kRoundToNearest))
+          kIA32F64x2Round | MiscField::encode(kRoundToNearest))                \
+  IF_WASM(V, F64x2Sqrt, kIA32F64x2Sqrt)
 
-#define RRO_FLOAT_OP_T_LIST(V)        \
-  V(Float32Add, kFloat32Add)          \
-  V(Float64Add, kFloat64Add)          \
-  V(Float32Sub, kFloat32Sub)          \
-  V(Float64Sub, kFloat64Sub)          \
-  V(Float32Mul, kFloat32Mul)          \
-  V(Float64Mul, kFloat64Mul)          \
-  V(Float32Div, kFloat32Div)          \
-  V(Float64Div, kFloat64Div)          \
-  IF_WASM(V, F64x2Add, kIA32F64x2Add) \
-  IF_WASM(V, F64x2Sub, kIA32F64x2Sub) \
-  IF_WASM(V, F64x2Mul, kIA32F64x2Mul) \
-  IF_WASM(V, F64x2Div, kIA32F64x2Div) \
-  IF_WASM(V, F64x2Eq, kIA32F64x2Eq)   \
-  IF_WASM(V, F64x2Ne, kIA32F64x2Ne)   \
-  IF_WASM(V, F64x2Lt, kIA32F64x2Lt)   \
-  IF_WASM(V, F64x2Le, kIA32F64x2Le)
+#define RRO_FLOAT_OP_T_LIST(V) \
+  V(Float32Add, kFloat32Add)   \
+  V(Float64Add, kFloat64Add)   \
+  V(Float32Sub, kFloat32Sub)   \
+  V(Float64Sub, kFloat64Sub)   \
+  V(Float32Mul, kFloat32Mul)   \
+  V(Float64Mul, kFloat64Mul)   \
+  V(Float32Div, kFloat32Div)   \
+  V(Float64Div, kFloat64Div)
 
 #define FLOAT_UNOP_T_LIST(V)        \
   V(Float32Abs, kFloat32Abs)        \
@@ -1925,6 +1917,12 @@ RRO_FLOAT_OP_T_LIST(RRO_FLOAT_VISITOR)
 FLOAT_UNOP_T_LIST(FLOAT_UNOP_VISITOR)
 #undef FLOAT_UNOP_VISITOR
 #undef FLOAT_UNOP_T_LIST
+
+template <typename Adapter>
+void InstructionSelectorT<Adapter>::VisitTruncateFloat64ToFloat16RawBits(
+    node_t node) {
+  UNIMPLEMENTED();
+}
 
 template <typename Adapter>
 void InstructionSelectorT<Adapter>::VisitWord32ReverseBits(node_t node) {
@@ -3125,7 +3123,7 @@ void InstructionSelectorT<Adapter>::VisitWord32AtomicPairLoad(node_t node) {
     // TODO(ahaas): Introduce an enum for {scale} instead of an integer.
     // {scale = 0} means *1 in the generated code.
     int scale = 0;
-    AddressingMode mode = g.GenerateMemoryOperandInputs(
+    mode = g.GenerateMemoryOperandInputs(
         index, scale, base, this->valid(projection0) ? 0 : 4,
         kPositiveDisplacement, inputs, &input_count);
     InstructionCode code = opcode | AddressingModeField::encode(mode);
@@ -3278,6 +3276,14 @@ void InstructionSelectorT<Adapter>::VisitWord32AtomicPairCompareExchange(
   V(F32x4Le)                               \
   V(F32x4Min)                              \
   V(F32x4Max)                              \
+  IF_WASM(V, F64x2Add)                     \
+  IF_WASM(V, F64x2Sub)                     \
+  IF_WASM(V, F64x2Mul)                     \
+  IF_WASM(V, F64x2Div)                     \
+  IF_WASM(V, F64x2Eq)                      \
+  IF_WASM(V, F64x2Ne)                      \
+  IF_WASM(V, F64x2Lt)                      \
+  IF_WASM(V, F64x2Le)                      \
   V(I64x2Add)                              \
   V(I64x2Sub)                              \
   V(I64x2Eq)                               \
@@ -3503,9 +3509,9 @@ template <typename Adapter>
 void InstructionSelectorT<Adapter>::VisitI64x2Neg(node_t node) {
   IA32OperandGeneratorT<Adapter> g(this);
   // If AVX unsupported, make sure dst != src to avoid a move.
-  InstructionOperand operand0 = IsSupported(AVX)
-                                    ? g.UseRegister(this->input_at(node, 0))
-                                    : g.UseUnique(this->input_at(node, 0));
+  InstructionOperand operand0 =
+      IsSupported(AVX) ? g.UseRegister(this->input_at(node, 0))
+                       : g.UseUniqueRegister(this->input_at(node, 0));
   Emit(kIA32I64x2Neg, g.DefineAsRegister(node), operand0);
 }
 
@@ -4459,7 +4465,8 @@ void InstructionSelectorT<Adapter>::VisitF64x2PromoteLowF32x4(node_t node) {
 
     if (m.Is(LoadTransformation::kS128Load64Zero) && CanCover(node, input)) {
       // Trap handler is not supported on IA32.
-      DCHECK_NE(m.ResolvedValue().kind, MemoryAccessKind::kProtected);
+      DCHECK_NE(m.ResolvedValue().kind,
+                MemoryAccessKind::kProtectedByTrapHandler);
       // LoadTransforms cannot be eliminated, so they are visited even if
       // unused. Mark it as defined so that we don't visit it.
       MarkAsDefined(input);

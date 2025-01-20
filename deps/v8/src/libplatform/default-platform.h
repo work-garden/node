@@ -56,7 +56,7 @@ class V8_PLATFORM_EXPORT DefaultPlatform : public NON_EXPORTED_BASE(Platform) {
   // v8::Platform implementation.
   int NumberOfWorkerThreads() override;
   std::shared_ptr<TaskRunner> GetForegroundTaskRunner(
-      v8::Isolate* isolate) override;
+      v8::Isolate* isolate, TaskPriority priority) override;
   void PostTaskOnWorkerThreadImpl(TaskPriority priority,
                                   std::unique_ptr<Task> task,
                                   const SourceLocation& location) override;
@@ -102,7 +102,7 @@ class V8_PLATFORM_EXPORT DefaultPlatform : public NON_EXPORTED_BASE(Platform) {
     return priority_to_index(TaskPriority::kMaxPriority) + 1;
   }
 
-  base::Mutex lock_;
+  base::SpinningMutex lock_;
   const int thread_pool_size_;
   IdleTaskSupport idle_task_support_;
   std::shared_ptr<DefaultWorkerThreadsTaskRunner> worker_threads_task_runners_

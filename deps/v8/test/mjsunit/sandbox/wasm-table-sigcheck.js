@@ -48,7 +48,8 @@ let table0 = instance.exports.table0;
 
 // Prepare corruption utilities.
 const kHeapObjectTag = 1;
-const kWasmTableObjectTypeOffset = 28;
+const kWasmTableType = Sandbox.getInstanceTypeIdFor('WASM_TABLE_OBJECT_TYPE');
+const kWasmTableObjectTypeOffset = Sandbox.getFieldOffset(kWasmTableType, 'raw_type');
 
 let memory = new DataView(new Sandbox.MemoryView(0, 0x100000000));
 
@@ -69,7 +70,7 @@ assertThrows(
 
 // Corrupt the table's type to accept putting $func0 into it.
 let t0 = getPtr(table0);
-const kRef = 9;
+const kRef = 10;
 const kSmiTagSize = 1;
 const kHeapTypeShift = 5;
 let expected_old_type = (($sig_i_l << kHeapTypeShift) | kRef) << kSmiTagSize;
@@ -81,6 +82,6 @@ setField(t0, kWasmTableObjectTypeOffset, new_type);
 table0.set(0, func0);
 
 // If the process was still alive, this would cause the sandbox violation.
-instance.exports.boom(BigInt(Sandbox.targetPage));
+instance.exports.boom(0x414141414141n);
 
 assertUnreachable("Process should have been killed.");

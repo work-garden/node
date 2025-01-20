@@ -39,8 +39,8 @@ class JSPluralRules
     : public TorqueGeneratedJSPluralRules<JSPluralRules, JSObject> {
  public:
   V8_WARN_UNUSED_RESULT static MaybeHandle<JSPluralRules> New(
-      Isolate* isolate, DirectHandle<Map> map, Handle<Object> locales,
-      Handle<Object> options);
+      Isolate* isolate, DirectHandle<Map> map, DirectHandle<Object> locales,
+      DirectHandle<Object> options);
 
   static Handle<JSObject> ResolvedOptions(
       Isolate* isolate, DirectHandle<JSPluralRules> plural_rules);
@@ -61,15 +61,15 @@ class JSPluralRules
   inline void set_type(Type type);
   inline Type type() const;
 
-  Handle<String> TypeAsString() const;
+  Handle<String> TypeAsString(Isolate* isolate) const;
 
   DECL_PRINTER(JSPluralRules)
 
   // Bit positions in |flags|.
   DEFINE_TORQUE_GENERATED_JS_PLURAL_RULES_FLAGS()
 
-  static_assert(Type::CARDINAL <= TypeBit::kMax);
-  static_assert(Type::ORDINAL <= TypeBit::kMax);
+  static_assert(TypeBit::is_valid(Type::CARDINAL));
+  static_assert(TypeBit::is_valid(Type::ORDINAL));
 
   DECL_ACCESSORS(icu_plural_rules, Tagged<Managed<icu::PluralRules>>)
   DECL_ACCESSORS(icu_number_formatter,

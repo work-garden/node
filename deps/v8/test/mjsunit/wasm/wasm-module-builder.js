@@ -50,6 +50,7 @@ var kPageSize = 65536;
 var kSpecMaxPages = 65536;
 var kMaxVarInt32Size = 5;
 var kMaxVarInt64Size = 10;
+var kSpecMaxFunctionParams = 1_000;
 
 let kDeclNoLocals = 0;
 
@@ -190,10 +191,14 @@ let kSig_i_iii = makeSig([kWasmI32, kWasmI32, kWasmI32], [kWasmI32]);
 let kSig_i_iiii = makeSig([kWasmI32, kWasmI32, kWasmI32, kWasmI32], [kWasmI32]);
 let kSig_v_iiii = makeSig([kWasmI32, kWasmI32, kWasmI32, kWasmI32], []);
 let kSig_l_i = makeSig([kWasmI32], [kWasmI64]);
+let kSig_f_i = makeSig([kWasmI32], [kWasmF32]);
+let kSig_i_f = makeSig([kWasmF32], [kWasmI32]);
+let kSig_i_ff = makeSig([kWasmF32, kWasmF32], [kWasmI32]);
 let kSig_f_ff = makeSig([kWasmF32, kWasmF32], [kWasmF32]);
 let kSig_f_ffff = makeSig([kWasmF32, kWasmF32, kWasmF32, kWasmF32], [kWasmF32]);
 let kSig_d_dd = makeSig([kWasmF64, kWasmF64], [kWasmF64]);
 let kSig_l_ll = makeSig([kWasmI64, kWasmI64], [kWasmI64]);
+let kSig_l_llll = makeSig([kWasmI64, kWasmI64, kWasmI64, kWasmI64], [kWasmI64]);
 let kSig_i_dd = makeSig([kWasmF64, kWasmF64], [kWasmI32]);
 let kSig_v_v = makeSig([], []);
 let kSig_i_v = makeSig([], [kWasmI32]);
@@ -220,6 +225,8 @@ let kSig_v_f = makeSig([kWasmF32], []);
 let kSig_f_f = makeSig([kWasmF32], [kWasmF32]);
 let kSig_f_d = makeSig([kWasmF64], [kWasmF32]);
 let kSig_d_d = makeSig([kWasmF64], [kWasmF64]);
+let kSig_d_f = makeSig([kWasmF32], [kWasmF64]);
+let kSig_d_i = makeSig([kWasmI32], [kWasmF64]);
 let kSig_r_r = makeSig([kWasmExternRef], [kWasmExternRef]);
 let kSig_a_a = makeSig([kWasmAnyFunc], [kWasmAnyFunc]);
 let kSig_i_r = makeSig([kWasmExternRef], [kWasmI32]);
@@ -933,6 +940,41 @@ let kExprI16x8RelaxedQ15MulRS = wasmSignedLeb(0x111);
 let kExprI16x8DotI8x16I7x16S = wasmSignedLeb(0x112);
 let kExprI32x4DotI8x16I7x16AddS = wasmSignedLeb(0x113);
 
+// FP16 SIMD
+let kExprF16x8Splat = wasmSignedLeb(0x120);
+let kExprF16x8ExtractLane = wasmSignedLeb(0x121);
+let kExprF16x8ReplaceLane = wasmSignedLeb(0x122);
+let kExprF16x8Abs = wasmSignedLeb(0x130);
+let kExprF16x8Neg = wasmSignedLeb(0x131);
+let kExprF16x8Sqrt = wasmSignedLeb(0x132);
+let kExprF16x8Ceil = wasmSignedLeb(0x133);
+let kExprF16x8Floor = wasmSignedLeb(0x134);
+let kExprF16x8Trunc = wasmSignedLeb(0x135);
+let kExprF16x8NearestInt = wasmSignedLeb(0x136);
+let kExprF16x8Eq = wasmSignedLeb(0x137);
+let kExprF16x8Ne = wasmSignedLeb(0x138);
+let kExprF16x8Lt = wasmSignedLeb(0x139);
+let kExprF16x8Gt = wasmSignedLeb(0x13a);
+let kExprF16x8Le = wasmSignedLeb(0x13b);
+let kExprF16x8Ge = wasmSignedLeb(0x13c);
+let kExprF16x8Add = wasmSignedLeb(0x13d);
+let kExprF16x8Sub = wasmSignedLeb(0x13e);
+let kExprF16x8Mul = wasmSignedLeb(0x13f);
+let kExprF16x8Div = wasmSignedLeb(0x140);
+let kExprF16x8Min = wasmSignedLeb(0x141);
+let kExprF16x8Max = wasmSignedLeb(0x142);
+let kExprF16x8Pmin = wasmSignedLeb(0x143);
+let kExprF16x8Pmax = wasmSignedLeb(0x144);
+let kExprI16x8SConvertF16x8 = wasmSignedLeb(0x145);
+let kExprI16x8UConvertF16x8 = wasmSignedLeb(0x146);
+let kExprF16x8SConvertI16x8 = wasmSignedLeb(0x147);
+let kExprF16x8UConvertI16x8 = wasmSignedLeb(0x148);
+let kExprF16x8DemoteF32x4Zero = wasmSignedLeb(0x149);
+let kExprF16x8DemoteF64x2Zero = wasmSignedLeb(0x14a);
+let kExprF32x4PromoteLowF16x8 = wasmSignedLeb(0x14b);
+let kExprF16x8Qfma = wasmSignedLeb(0x14e);
+let kExprF16x8Qfms = wasmSignedLeb(0x14f);
+
 // Compilation hint constants.
 let kCompilationHintStrategyDefault = 0x00;
 let kCompilationHintStrategyLazy = 0x01;
@@ -1543,7 +1585,8 @@ class WasmModuleBuilder {
   }
 
   addImportedTable(
-      module, name, initial, maximum, type = kWasmFuncRef, is_table64 = false) {
+      module, name, initial, maximum, type = kWasmFuncRef, shared = false,
+      is_table64 = false) {
     if (this.tables.length != 0) {
       throw new Error('Imported tables must be declared before local ones');
     }
@@ -1554,7 +1597,8 @@ class WasmModuleBuilder {
       initial: initial,
       maximum: maximum,
       type: type,
-      is_table64: !!is_table64
+      shared: !!shared,
+      is_table64: !!is_table64,
     };
     this.imports.push(o);
     return this.num_imported_tables++;
@@ -1809,8 +1853,7 @@ class WasmModuleBuilder {
           } else if (imp.kind == kExternalTable) {
             section.emit_type(imp.type);
             const has_max = (typeof imp.maximum) != 'undefined';
-            // TODO(manoskouk): Store sharedness as a property.
-            const is_shared = false
+            const is_shared = !!imp.shared;
             const is_table64 = !!imp.is_table64;
             let limits_byte =
                 (is_table64 ? 4 : 0) | (is_shared ? 2 : 0) | (has_max ? 1 : 0);

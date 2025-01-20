@@ -163,7 +163,8 @@ void ProfilerEventsProcessor::AddDeoptStack(Address from, int fp_to_sp_delta) {
 void ProfilerEventsProcessor::AddCurrentStack(bool update_stats) {
   TickSampleEventRecord record(last_code_event_id_);
   RegisterState regs;
-  StackFrameIterator it(isolate_);
+  StackFrameIterator it(isolate_, isolate_->thread_local_top(),
+                        StackFrameIterator::NoHandles{});
   if (!it.done()) {
     StackFrame* frame = it.frame();
     regs.sp = reinterpret_cast<void*>(frame->sp());
@@ -461,12 +462,12 @@ namespace {
 class CpuProfilersManager {
  public:
   void AddProfiler(Isolate* isolate, CpuProfiler* profiler) {
-    base::MutexGuard lock(&mutex_);
+    base::SpinningMutexGuard lock(&mutex_);
     profilers_.emplace(isolate, profiler);
   }
 
   void RemoveProfiler(Isolate* isolate, CpuProfiler* profiler) {
-    base::MutexGuard lock(&mutex_);
+    base::SpinningMutexGuard lock(&mutex_);
     auto range = profilers_.equal_range(isolate);
     for (auto it = range.first; it != range.second; ++it) {
       if (it->second != profiler) continue;
@@ -477,7 +478,7 @@ class CpuProfilersManager {
   }
 
   void CallCollectSample(Isolate* isolate) {
-    base::MutexGuard lock(&mutex_);
+    base::SpinningMutexGuard lock(&mutex_);
     auto range = profilers_.equal_range(isolate);
     for (auto it = range.first; it != range.second; ++it) {
       it->second->CollectSample();
@@ -485,7 +486,7 @@ class CpuProfilersManager {
   }
 
   size_t GetAllProfilersMemorySize(Isolate* isolate) {
-    base::MutexGuard lock(&mutex_);
+    base::SpinningMutexGuard lock(&mutex_);
     size_t estimated_memory = 0;
     auto range = profilers_.equal_range(isolate);
     for (auto it = range.first; it != range.second; ++it) {
@@ -496,7 +497,7 @@ class CpuProfilersManager {
 
  private:
   std::unordered_multimap<Isolate*, CpuProfiler*> profilers_;
-  base::Mutex mutex_;
+  base::SpinningMutex mutex_;
 };
 
 DEFINE_LAZY_LEAKY_OBJECT_GETTER(CpuProfilersManager, GetProfilersManager)

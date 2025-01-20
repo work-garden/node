@@ -361,9 +361,6 @@ BIT_FIELD_ACCESSORS(SharedFunctionInfo, flags2, is_sparkplug_compiling,
 BIT_FIELD_ACCESSORS(SharedFunctionInfo, flags2, maglev_compilation_failed,
                     SharedFunctionInfo::MaglevCompilationFailedBit)
 
-BIT_FIELD_ACCESSORS(SharedFunctionInfo, flags2, sparkplug_compiled,
-                    SharedFunctionInfo::SparkplugCompiledBit)
-
 BIT_FIELD_ACCESSORS(SharedFunctionInfo, flags2,
                     function_context_independent_compiled,
                     SharedFunctionInfo::FunctionContextIndependentCompiledBit)
@@ -804,8 +801,9 @@ Tagged<InterpreterData> SharedFunctionInfo::interpreter_data(
 }
 
 void SharedFunctionInfo::set_interpreter_data(
-    Tagged<InterpreterData> interpreter_data, WriteBarrierMode mode) {
-  DCHECK(v8_flags.interpreted_frames_native_stack);
+    Isolate* isolate, Tagged<InterpreterData> interpreter_data,
+    WriteBarrierMode mode) {
+  DCHECK(isolate->interpreted_frames_native_stack());
   DCHECK(!HasBaselineCode());
   SetTrustedData(interpreter_data, mode);
 }
@@ -875,31 +873,6 @@ void SharedFunctionInfo::set_asm_wasm_data(Tagged<AsmWasmData> data,
   DCHECK(GetUntrustedData() == Smi::FromEnum(Builtin::kCompileLazy) ||
          HasUncompiledData() || HasAsmWasmData());
   SetUntrustedData(data, mode);
-}
-
-const wasm::WasmModule* SharedFunctionInfo::wasm_module() const {
-  if (!HasWasmExportedFunctionData()) return nullptr;
-  Tagged<WasmExportedFunctionData> function_data =
-      wasm_exported_function_data();
-  return function_data->instance_data()->module();
-}
-
-const wasm::FunctionSig* SharedFunctionInfo::wasm_function_signature() const {
-  const wasm::WasmModule* module = wasm_module();
-  if (!module) return nullptr;
-  Tagged<WasmExportedFunctionData> function_data =
-      wasm_exported_function_data();
-  DCHECK_LT(function_data->function_index(), module->functions.size());
-  return module->functions[function_data->function_index()].sig;
-}
-
-int SharedFunctionInfo::wasm_function_index() const {
-  if (!HasWasmExportedFunctionData()) return -1;
-  Tagged<WasmExportedFunctionData> function_data =
-      wasm_exported_function_data();
-  DCHECK_GE(function_data->function_index(), 0);
-  DCHECK_LT(function_data->function_index(), wasm_module()->functions.size());
-  return function_data->function_index();
 }
 
 DEF_GETTER(SharedFunctionInfo, wasm_function_data, Tagged<WasmFunctionData>) {
@@ -1043,7 +1016,8 @@ void SharedFunctionInfo::ClearPreparseData(IsolateForSandbox isolate) {
                                ClearRecordedSlots::kYes);
 
   // Swap the map.
-  data->set_map(GetReadOnlyRoots().uncompiled_data_without_preparse_data_map(),
+  data->set_map(heap->isolate(),
+                GetReadOnlyRoots().uncompiled_data_without_preparse_data_map(),
                 kReleaseStore);
 
   // Ensure that the clear was successful.

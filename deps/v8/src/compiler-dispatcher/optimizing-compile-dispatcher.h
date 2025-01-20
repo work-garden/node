@@ -27,12 +27,12 @@ class SharedFunctionInfo;
 class V8_EXPORT OptimizingCompileDispatcherQueue {
  public:
   inline bool IsAvailable() {
-    base::MutexGuard access(&mutex_);
+    base::SpinningMutexGuard access(&mutex_);
     return length_ < capacity_;
   }
 
   inline int Length() {
-    base::MutexGuard access_queue(&mutex_);
+    base::SpinningMutexGuard access_queue(&mutex_);
     return length_;
   }
 
@@ -44,7 +44,7 @@ class V8_EXPORT OptimizingCompileDispatcherQueue {
   ~OptimizingCompileDispatcherQueue() { DeleteArray(queue_); }
 
   TurbofanCompilationJob* Dequeue() {
-    base::MutexGuard access(&mutex_);
+    base::SpinningMutexGuard access(&mutex_);
     if (length_ == 0) return nullptr;
     TurbofanCompilationJob* job = queue_[QueueIndex(0)];
     DCHECK_NOT_NULL(job);
@@ -54,7 +54,7 @@ class V8_EXPORT OptimizingCompileDispatcherQueue {
   }
 
   void Enqueue(TurbofanCompilationJob* job) {
-    base::MutexGuard access(&mutex_);
+    base::SpinningMutexGuard access(&mutex_);
     DCHECK_LT(length_, capacity_);
     queue_[QueueIndex(length_)] = job;
     length_++;
@@ -76,7 +76,7 @@ class V8_EXPORT OptimizingCompileDispatcherQueue {
   int capacity_;
   int length_;
   int shift_;
-  base::Mutex mutex_;
+  base::SpinningMutex mutex_;
 };
 
 class V8_EXPORT_PRIVATE OptimizingCompileDispatcher {
@@ -92,6 +92,11 @@ class V8_EXPORT_PRIVATE OptimizingCompileDispatcher {
   void AwaitCompileTasks();
   void InstallOptimizedFunctions();
 
+  // Install generated builtins in the output queue in contiguous finalization
+  // order, starting with installed_count. Returns the finalization order of the
+  // last job that was finalized.
+  int InstallGeneratedBuiltins(int installed_count);
+
   inline bool IsQueueAvailable() { return input_queue_.IsAvailable(); }
 
   static bool Enabled() { return v8_flags.concurrent_recompilation; }
@@ -101,7 +106,9 @@ class V8_EXPORT_PRIVATE OptimizingCompileDispatcher {
 
   // Whether to finalize and thus install the optimized code.  Defaults to true.
   // Only set to false for testing (where finalization is then manually
-  // requested using %FinalizeOptimization).
+  // requested using %FinalizeOptimization) and when compiling embedded builtins
+  // concurrently. For the latter, builtins are installed manually using
+  // InstallGeneratedBuiltins().
   bool finalize() const { return finalize_; }
   void set_finalize(bool finalize) {
     CHECK(!HasJobs());
@@ -118,10 +125,9 @@ class V8_EXPORT_PRIVATE OptimizingCompileDispatcher {
   static constexpr TaskPriority kEfficiencyTaskPriority =
       TaskPriority::kBestEffort;
 
-  void FlushQueues(BlockingBehavior blocking_behavior,
-                   bool restore_function_code);
+  void FlushQueues(BlockingBehavior blocking_behavior);
   void FlushInputQueue();
-  void FlushOutputQueue(bool restore_function_code);
+  void FlushOutputQueue();
   void CompileNext(TurbofanCompilationJob* job, LocalIsolate* local_isolate);
   TurbofanCompilationJob* NextInput(LocalIsolate* local_isolate);
 
@@ -130,10 +136,10 @@ class V8_EXPORT_PRIVATE OptimizingCompileDispatcher {
   OptimizingCompileDispatcherQueue input_queue_;
 
   // Queue of recompilation tasks ready to be installed (excluding OSR).
-  std::queue<TurbofanCompilationJob*> output_queue_;
+  std::deque<TurbofanCompilationJob*> output_queue_;
   // Used for job based recompilation which has multiple producers on
   // different threads.
-  base::Mutex output_queue_mutex_;
+  base::SpinningMutex output_queue_mutex_;
 
   std::unique_ptr<JobHandle> job_handle_;
 

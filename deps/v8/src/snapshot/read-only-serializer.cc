@@ -4,8 +4,10 @@
 
 #include "src/snapshot/read-only-serializer.h"
 
+#include "src/common/globals.h"
 #include "src/heap/heap-inl.h"
 #include "src/heap/read-only-heap.h"
+#include "src/heap/visit-object.h"
 #include "src/objects/objects-inl.h"
 #include "src/objects/slots.h"
 #include "src/snapshot/read-only-serializer-deserializer.h"
@@ -77,8 +79,11 @@ class ObjectPreProcessor final {
   }
   void PreProcessCode(Tagged<Code> o) {
     o->ClearInstructionStartForSerialization(isolate_);
-    DCHECK(!o->has_source_position_table_or_bytecode_offset_table());
-    DCHECK(!o->has_deoptimization_data_or_interpreter_data());
+    CHECK(!o->has_source_position_table_or_bytecode_offset_table());
+    CHECK(!o->has_deoptimization_data_or_interpreter_data());
+#ifdef V8_ENABLE_LEAPTIERING
+    CHECK_EQ(o->js_dispatch_handle(), kNullJSDispatchHandle);
+#endif
   }
 
   Isolate* const isolate_;
@@ -98,6 +103,9 @@ struct ReadOnlySegmentForSerialization {
         tagged_slots(segment_size / kTaggedSize) {
     // .. because tagged_slots records a bit for each slot:
     DCHECK(IsAligned(segment_size, kTaggedSize));
+    // Ensure incoming pointers to this page are representable.
+    CHECK_LT(isolate->read_only_heap()->read_only_space()->IndexOf(page),
+             1UL << ro::EncodedTagged::kPageIndexBits);
 
     MemCopy(contents.get(), reinterpret_cast<void*>(segment_start),
             segment_size);
@@ -140,17 +148,12 @@ ro::EncodedTagged Encode(Isolate* isolate, Tagged<HeapObject> o) {
   Address o_address = o.address();
   MemoryChunkMetadata* chunk = MemoryChunkMetadata::FromAddress(o_address);
 
-  ro::EncodedTagged encoded;
   ReadOnlySpace* ro_space = isolate->read_only_heap()->read_only_space();
   int index = static_cast<int>(ro_space->IndexOf(chunk));
-  DCHECK_LT(index, 1UL << ro::EncodedTagged::kPageIndexBits);
-  encoded.page_index = index;
   uint32_t offset = static_cast<int>(chunk->Offset(o_address));
   DCHECK(IsAligned(offset, kTaggedSize));
-  DCHECK_LT(offset / kTaggedSize, 1UL << ro::EncodedTagged::kOffsetBits);
-  encoded.offset = offset / kTaggedSize;
 
-  return encoded;
+  return ro::EncodedTagged(index, offset / kTaggedSize);
 }
 
 // If relocations are needed, this class
@@ -209,7 +212,7 @@ class EncodeRelocationsVisitor final : public ObjectVisitor {
     ExternalPointerSlot slot_in_segment{
         reinterpret_cast<Address>(segment_->contents.get() +
                                   SegmentOffsetOf(slot)),
-        slot.tag()};
+        slot.exact_tag()};
     // Constructing no_gc here is not the intended use pattern (instead we
     // should pass it along the entire callchain); but there's little point of
     // doing that here - all of the code in this file relies on GC being
@@ -271,7 +274,7 @@ void ReadOnlySegmentForSerialization::EncodeTaggedSlots(Isolate* isolate) {
                                 SkipFreeSpaceOrFiller::kNo);
   for (Tagged<HeapObject> o = it.Next(); !o.is_null(); o = it.Next()) {
     if (o.address() >= segment_end) break;
-    o->Iterate(cage_base, &v);
+    VisitObject(isolate, o, &v);
   }
 }
 

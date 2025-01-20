@@ -45,9 +45,9 @@ class WasmResumeData;
 
 #if V8_ENABLE_WEBASSEMBLY
 namespace wasm {
+class CanonicalValueType;
 struct WasmModule;
 class ValueType;
-using FunctionSig = Signature<ValueType>;
 }  // namespace wasm
 #endif
 
@@ -406,7 +406,7 @@ class SharedFunctionInfo
   inline Tagged<InterpreterData> interpreter_data(
       IsolateForSandbox isolate) const;
   inline void set_interpreter_data(
-      Tagged<InterpreterData> interpreter_data,
+      Isolate* isolate, Tagged<InterpreterData> interpreter_data,
       WriteBarrierMode mode = UPDATE_WRITE_BARRIER);
   DECL_GETTER(HasBaselineCode, bool)
   DECL_RELEASE_ACQUIRE_ACCESSORS(baseline_code, Tagged<Code>)
@@ -425,15 +425,15 @@ class SharedFunctionInfo
   inline bool HasWasmResumeData() const;
   DECL_ACCESSORS(asm_wasm_data, Tagged<AsmWasmData>)
 
+  // Note: The accessors below will read a trusted pointer; when accessing it
+  // again, you must assume that it might have been swapped out e.g. by a
+  // concurrently running worker.
   DECL_GETTER(wasm_function_data, Tagged<WasmFunctionData>)
   DECL_GETTER(wasm_exported_function_data, Tagged<WasmExportedFunctionData>)
   DECL_GETTER(wasm_js_function_data, Tagged<WasmJSFunctionData>)
   DECL_GETTER(wasm_capi_function_data, Tagged<WasmCapiFunctionData>)
-  DECL_GETTER(wasm_resume_data, Tagged<WasmResumeData>)
 
-  inline const wasm::WasmModule* wasm_module() const;
-  inline const wasm::FunctionSig* wasm_function_signature() const;
-  inline int wasm_function_index() const;
+  DECL_GETTER(wasm_resume_data, Tagged<WasmResumeData>)
 #endif  // V8_ENABLE_WEBASSEMBLY
 
   // builtin corresponds to the auto-generated Builtin enum.
@@ -529,8 +529,6 @@ class SharedFunctionInfo
 
   DECL_BOOLEAN_ACCESSORS(is_sparkplug_compiling)
   DECL_BOOLEAN_ACCESSORS(maglev_compilation_failed)
-
-  DECL_BOOLEAN_ACCESSORS(sparkplug_compiled)
 
   CachedTieringDecision cached_tiering_decision();
   void set_cached_tiering_decision(CachedTieringDecision decision);
@@ -709,7 +707,7 @@ class SharedFunctionInfo
 
   inline bool CanCollectSourcePosition(Isolate* isolate);
   static void EnsureSourcePositionsAvailable(
-      Isolate* isolate, Handle<SharedFunctionInfo> shared_info);
+      Isolate* isolate, DirectHandle<SharedFunctionInfo> shared_info);
 
   template <typename IsolateT>
   bool AreSourcePositionsAvailable(IsolateT* isolate) const;
@@ -772,12 +770,12 @@ class SharedFunctionInfo
   class BodyDescriptor;
 
   // Bailout reasons must fit in the DisabledOptimizationReason bitfield.
-  static_assert(BailoutReason::kLastErrorMessage <=
-                DisabledOptimizationReasonBits::kMax);
+  static_assert(DisabledOptimizationReasonBits::is_valid(
+      BailoutReason::kLastErrorMessage));
 
-  static_assert(FunctionKind::kLastFunctionKind <= FunctionKindBits::kMax);
-  static_assert(FunctionSyntaxKind::kLastFunctionSyntaxKind <=
-                FunctionSyntaxKindBits::kMax);
+  static_assert(FunctionKindBits::is_valid(FunctionKind::kLastFunctionKind));
+  static_assert(FunctionSyntaxKindBits::is_valid(
+      FunctionSyntaxKind::kLastFunctionSyntaxKind));
 
   // Sets the bytecode in {shared}'s DebugInfo as the bytecode to
   // be returned by following calls to GetActiveBytecodeArray. Stores a

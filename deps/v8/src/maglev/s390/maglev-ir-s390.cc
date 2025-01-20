@@ -175,6 +175,22 @@ void RestLength::GenerateCode(MaglevAssembler* masm,
 
 int CheckedObjectToIndex::MaxCallStackArgs() const { return 0; }
 
+void CheckedIntPtrToInt32::SetValueLocationConstraints() {
+  UseRegister(input());
+  DefineSameAsFirst(this);
+}
+
+void CheckedIntPtrToInt32::GenerateCode(MaglevAssembler* masm,
+                                        const ProcessingState& state) {
+  Register input_reg = ToRegister(input());
+  Label* deopt = __ GetDeoptLabel(this, DeoptimizeReason::kNotInt32);
+
+  __ CmpS64(input_reg, Operand(std::numeric_limits<int32_t>::max()));
+  __ bgt(deopt);
+  __ CmpS64(input_reg, Operand(std::numeric_limits<int32_t>::min()));
+  __ blt(deopt);
+}
+
 void Int32AddWithOverflow::SetValueLocationConstraints() {
   UseRegister(left_input());
   UseRegister(right_input());
@@ -538,8 +554,10 @@ void Float64Modulus::SetValueLocationConstraints() {
 void Float64Modulus::GenerateCode(MaglevAssembler* masm,
                                   const ProcessingState& state) {
   FrameScope scope(masm, StackFrame::MANUAL);
+  __ Push(r2, r3, r4, r5);
   __ PrepareCallCFunction(0, 2);
   __ CallCFunction(ExternalReference::mod_two_doubles_operation(), 0, 2);
+  __ Pop(r2, r3, r4, r5);
 }
 
 void Float64Negate::SetValueLocationConstraints() {
@@ -594,8 +612,10 @@ void Float64Exponentiate::SetValueLocationConstraints() {
 void Float64Exponentiate::GenerateCode(MaglevAssembler* masm,
                                        const ProcessingState& state) {
   FrameScope scope(masm, StackFrame::MANUAL);
+  __ Push(r2, r3, r4, r5);
   __ PrepareCallCFunction(0, 2);
   __ CallCFunction(ExternalReference::ieee754_pow_function(), 0, 2);
+  __ Pop(r2, r3, r4, r5);
 }
 
 int Float64Ieee754Unary::MaxCallStackArgs() const { return 0; }
@@ -606,8 +626,10 @@ void Float64Ieee754Unary::SetValueLocationConstraints() {
 void Float64Ieee754Unary::GenerateCode(MaglevAssembler* masm,
                                        const ProcessingState& state) {
   FrameScope scope(masm, StackFrame::MANUAL);
+  __ Push(r2, r3, r4, r5);
   __ PrepareCallCFunction(0, 1);
   __ CallCFunction(ieee_function_ref(), 0, 1);
+  __ Pop(r2, r3, r4, r5);
 }
 
 void LoadTypedArrayLength::SetValueLocationConstraints() {
@@ -626,12 +648,11 @@ void LoadTypedArrayLength::GenerateCode(MaglevAssembler* masm,
 
   __ LoadBoundedSizeFromObject(result_register, object,
                                JSTypedArray::kRawByteLengthOffset);
-  int element_size = ElementsKindSize(elements_kind_);
-  if (element_size > 1) {
+  int shift_size = ElementsKindToShiftSize(elements_kind_);
+  if (shift_size > 0) {
     // TODO(leszeks): Merge this shift with the one in LoadBoundedSize.
-    DCHECK(element_size == 2 || element_size == 4 || element_size == 8);
-    __ ShiftLeftU64(result_register, result_register,
-                    Operand(base::bits::CountTrailingZeros(element_size)));
+    DCHECK(shift_size == 1 || shift_size == 2 || shift_size == 3);
+    __ ShiftRightU64(result_register, result_register, Operand(shift_size));
   }
 }
 

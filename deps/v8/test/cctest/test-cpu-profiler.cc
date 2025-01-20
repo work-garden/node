@@ -4039,7 +4039,7 @@ void ValidateEmbedderState(v8::CpuProfile* profile,
 TEST(EmbedderContextIsolation) {
   i::v8_flags.allow_natives_syntax = true;
   LocalContext execution_env;
-  i::HandleScope scope(CcTest::i_isolate());
+  i::HandleScope handle_scope(CcTest::i_isolate());
 
   v8::Isolate* isolate = execution_env.local()->GetIsolate();
 
@@ -4150,8 +4150,7 @@ TEST(EmbedderStatePropagate) {
 TEST(EmbedderStatePropagateNativeContextMove) {
   // Reusing context addresses will cause this test to fail.
   if (i::v8_flags.gc_global || i::v8_flags.stress_compaction ||
-      i::v8_flags.stress_incremental_marking ||
-      i::v8_flags.enable_third_party_heap) {
+      i::v8_flags.stress_incremental_marking) {
     return;
   }
   // If no compaction is performed when a GC with stack is invoked (which
@@ -4223,7 +4222,6 @@ TEST(EmbedderStatePropagateNativeContextMove) {
 // Tests that when a native context that's being filtered is moved, we continue
 // to track its execution.
 TEST(ContextFilterMovedNativeContext) {
-  if (i::v8_flags.enable_third_party_heap) return;
   i::v8_flags.allow_natives_syntax = true;
   ManualGCScope manual_gc_scope;
   heap::ManualEvacuationCandidatesSelectionScope
@@ -4737,7 +4735,7 @@ TEST(BytecodeFlushEventsEagerLogging) {
         "  var z = x + y;"
         "};"
         "foo()";
-    Handle<String> foo_name = factory->InternalizeUtf8String("foo");
+    DirectHandle<String> foo_name = factory->InternalizeUtf8String("foo");
 
     // This compile will add the code to the compilation cache.
     {
@@ -4746,7 +4744,7 @@ TEST(BytecodeFlushEventsEagerLogging) {
     }
 
     // Check function is compiled.
-    Handle<Object> func_value =
+    DirectHandle<Object> func_value =
         Object::GetProperty(i_isolate, i_isolate->global_object(), foo_name)
             .ToHandleChecked();
     CHECK(IsJSFunction(*func_value));

@@ -53,7 +53,7 @@ void BasicBlockProfilerData::AddBranch(int32_t true_block_id,
 }
 
 BasicBlockProfilerData* BasicBlockProfiler::NewData(size_t n_blocks) {
-  base::MutexGuard lock(&data_list_mutex_);
+  base::SpinningMutexGuard lock(&data_list_mutex_);
   auto data = std::make_unique<BasicBlockProfilerData>(n_blocks);
   BasicBlockProfilerData* data_ptr = data.get();
   data_list_.push_back(std::move(data));
@@ -174,7 +174,8 @@ void BasicBlockProfiler::Print(Isolate* isolate, std::ostream& os) {
   std::unordered_set<std::string> builtin_names;
   for (int i = 0; i < list->length(); ++i) {
     BasicBlockProfilerData data(
-        handle(Cast<OnHeapBasicBlockProfilerData>(list->get(i)), isolate),
+        direct_handle(Cast<OnHeapBasicBlockProfilerData>(list->get(i)),
+                      isolate),
         isolate);
     os << data;
     // Ensure that all builtin names are unique; otherwise profile-guided
@@ -191,7 +192,8 @@ void BasicBlockProfiler::Log(Isolate* isolate, std::ostream& os) {
   std::unordered_set<std::string> builtin_names;
   for (int i = 0; i < list->length(); ++i) {
     BasicBlockProfilerData data(
-        handle(Cast<OnHeapBasicBlockProfilerData>(list->get(i)), isolate),
+        direct_handle(Cast<OnHeapBasicBlockProfilerData>(list->get(i)),
+                      isolate),
         isolate);
     data.Log(isolate, os);
     // Ensure that all builtin names are unique; otherwise profile-guided
