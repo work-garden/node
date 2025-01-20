@@ -100,6 +100,7 @@ void BindingData::EncodeInto(const FunctionCallbackInfo<Value>& args) {
   size_t dest_length = dest->ByteLength();
 
   int nchars;
+  // TODO: Use `WriteUtf8V2`, which has no `nchars_ref` parameter.
   int written = source->WriteUtf8(
       isolate,
       write_result,
@@ -120,7 +121,7 @@ void BindingData::EncodeUtf8String(const FunctionCallbackInfo<Value>& args) {
   CHECK(args[0]->IsString());
 
   Local<String> str = args[0].As<String>();
-  size_t length = str->Utf8Length(isolate);
+  size_t length = str->Utf8LengthV2(isolate);
 
   Local<ArrayBuffer> ab;
   {
@@ -130,11 +131,11 @@ void BindingData::EncodeUtf8String(const FunctionCallbackInfo<Value>& args) {
 
     CHECK(bs);
 
-    str->WriteUtf8(isolate,
-                   static_cast<char*>(bs->Data()),
-                   -1,  // We are certain that `data` is sufficiently large
-                   nullptr,
-                   String::NO_NULL_TERMINATION | String::REPLACE_INVALID_UTF8);
+    str->WriteUtf8V2(
+        isolate,
+        static_cast<char*>(bs->Data()),
+        length,  // We are certain that `data` is sufficiently large
+        String::WriteFlags::kReplaceInvalidUtf8);
 
     ab = ArrayBuffer::New(isolate, std::move(bs));
   }

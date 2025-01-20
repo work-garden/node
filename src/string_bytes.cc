@@ -200,8 +200,11 @@ MaybeLocal<Value> ExternTwoByteString::NewSimpleFromCopy(Isolate* isolate,
 
 }  // anonymous namespace
 
-size_t StringBytes::WriteUCS2(
-    Isolate* isolate, char* buf, size_t buflen, Local<String> str, int flags) {
+size_t StringBytes::WriteUCS2(Isolate* isolate,
+                              char* buf,
+                              size_t buflen,
+                              Local<String> str,
+                              int flags = String::WriteFlags::kNone) {
   uint16_t* const dst = reinterpret_cast<uint16_t*>(buf);
 
   size_t max_chars = buflen / sizeof(*dst);
@@ -212,7 +215,8 @@ size_t StringBytes::WriteUCS2(
   uint16_t* const aligned_dst = nbytes::AlignUp(dst, sizeof(*dst));
   size_t nchars;
   if (aligned_dst == dst) {
-    nchars = str->Write(isolate, dst, 0, max_chars, flags);
+    nchars = max_chars;
+    str->WriteV2(isolate, 0, nchars, dst, flags);
     return nchars * sizeof(*dst);
   }
 
@@ -223,15 +227,15 @@ size_t StringBytes::WriteUCS2(
   if (max_chars == 0) {
     return 0;
   }
-  nchars = str->Write(isolate, aligned_dst, 0, max_chars - 1, flags);
-  CHECK_EQ(nchars, max_chars - 1);
+  nchars = max_chars - 1;
+  str->WriteV2(isolate, 0, nchars, aligned_dst, flags);
 
   // Shift everything to unaligned-left
   memmove(dst, aligned_dst, nchars * sizeof(*dst));
 
   // One more char to be written
   uint16_t last;
-  CHECK_EQ(str->Write(isolate, &last, nchars, 1, flags), 1);
+  str->WriteV2(isolate, nchars, 1, &last, flags);
   memcpy(buf + nchars * sizeof(*dst), &last, sizeof(last));
   nchars++;
 
@@ -250,9 +254,7 @@ size_t StringBytes::Write(Isolate* isolate,
   Local<String> str = val.As<String>();
   String::ValueView input_view(isolate, str);
 
-  int flags = String::HINT_MANY_WRITES_EXPECTED |
-              String::NO_NULL_TERMINATION |
-              String::REPLACE_INVALID_UTF8;
+  int flags = String::WriteFlags::kReplaceInvalidUtf8;
 
   switch (encoding) {
     case ASCII:
@@ -262,13 +264,14 @@ size_t StringBytes::Write(Isolate* isolate,
         memcpy(buf, input_view.data8(), nbytes);
       } else {
         uint8_t* const dst = reinterpret_cast<uint8_t*>(buf);
-        nbytes = str->WriteOneByte(isolate, dst, 0, buflen, flags);
+        str->WriteOneByteV2(isolate, 0, buflen, dst, flags);
+        nbytes = buflen;
       }
       break;
 
     case BUFFER:
     case UTF8:
-      nbytes = str->WriteUtf8(isolate, buf, buflen, nullptr, flags);
+      nbytes = str->WriteUtf8V2(isolate, buf, buflen, flags);
       break;
 
     case UCS2: {

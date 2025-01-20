@@ -393,12 +393,12 @@ ByteSource ByteSource::FromStringOrBuffer(Environment* env,
 ByteSource ByteSource::FromString(Environment* env, Local<String> str,
                                   bool ntc) {
   CHECK(str->IsString());
-  size_t size = str->Utf8Length(env->isolate());
+  size_t size = str->Utf8LengthV2(env->isolate());
   size_t alloc_size = ntc ? size + 1 : size;
   ByteSource::Builder out(alloc_size);
-  int opts = String::NO_OPTIONS;
-  if (!ntc) opts |= String::NO_NULL_TERMINATION;
-  str->WriteUtf8(env->isolate(), out.data<char>(), alloc_size, nullptr, opts);
+  int opts = String::WriteFlags::kNone;
+  if (ntc) opts |= String::WriteFlags::kNullTerminate;
+  str->WriteUtf8V2(env->isolate(), out.data<char>(), alloc_size, opts);
   return std::move(out).release();
 }
 

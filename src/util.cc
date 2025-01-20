@@ -127,10 +127,9 @@ static void MakeUtf8String(Isolate* isolate,
 
   // TODO(@anonrig): Use simdutf to speed up non-one-byte strings once it's
   // implemented
-  const int flags =
-      String::NO_NULL_TERMINATION | String::REPLACE_INVALID_UTF8;
-  const int length =
-      string->WriteUtf8(isolate, target->out(), storage, nullptr, flags);
+  const int flags = String::WriteFlags::kReplaceInvalidUtf8;
+  const size_t length =
+      string->WriteUtf8V2(isolate, target->out(), storage, flags);
   target->SetLengthAndZeroTerminate(length);
 }
 
@@ -154,9 +153,8 @@ TwoByteValue::TwoByteValue(Isolate* isolate, Local<Value> value) {
   const size_t storage = string->Length() + 1;
   AllocateSufficientStorage(storage);
 
-  const int flags = String::NO_NULL_TERMINATION;
-  const int length = string->Write(isolate, out(), 0, storage, flags);
-  SetLengthAndZeroTerminate(length);
+  string->WriteV2(isolate, 0, storage - 1, out());
+  SetLengthAndZeroTerminate(storage);
 }
 
 BufferValue::BufferValue(Isolate* isolate, Local<Value> value) {

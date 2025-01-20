@@ -650,7 +650,7 @@ void Fill(const FunctionCallbackInfo<Value>& args) {
   // Can't use StringBytes::Write() in all cases. For example if attempting
   // to write a two byte character into a one byte Buffer.
   if (enc == UTF8) {
-    str_length = str_obj->Utf8Length(env->isolate());
+    str_length = str_obj->Utf8LengthV2(env->isolate());
     node::Utf8Value str(env->isolate(), args[1]);
     memcpy(ts_obj_data + start, *str, std::min(str_length, fill_length));
 
@@ -736,7 +736,8 @@ void SlowByteLengthUtf8(const FunctionCallbackInfo<Value>& args) {
   CHECK(args[0]->IsString());
 
   // Fast case: avoid StringBytes on UTF8 string. Jump to v8.
-  args.GetReturnValue().Set(args[0].As<String>()->Utf8Length(env->isolate()));
+  size_t length = args[0].As<String>()->Utf8LengthV2(env->isolate());
+  args.GetReturnValue().Set(static_cast<uint64_t>(length));
 }
 
 uint32_t FastByteLengthUtf8(Local<Value> receiver,
@@ -1003,8 +1004,7 @@ void IndexOfString(const FunctionCallbackInfo<Value>& args) {
     if (needle_data == nullptr) {
       return args.GetReturnValue().Set(-1);
     }
-    needle->WriteOneByte(
-        isolate, needle_data, 0, needle_length, String::NO_NULL_TERMINATION);
+    needle->WriteOneByteV2(isolate, 0, needle_length, needle_data);
 
     result = nbytes::SearchString(reinterpret_cast<const uint8_t*>(haystack),
                                   haystack_length,
@@ -1254,11 +1254,7 @@ static void Btoa(const FunctionCallbackInfo<Value>& args) {
         simdutf::binary_to_base64(ext->data(), ext->length(), buffer.out());
   } else if (input->IsOneByte()) {
     MaybeStackBuffer<uint8_t> stack_buf(input->Length());
-    input->WriteOneByte(env->isolate(),
-                        stack_buf.out(),
-                        0,
-                        input->Length(),
-                        String::NO_NULL_TERMINATION);
+    input->WriteOneByteV2(env->isolate(), 0, input->Length(), stack_buf.out());
 
     size_t expected_length =
         simdutf::base64_length_from_binary(input->Length());
@@ -1317,11 +1313,8 @@ static void Atob(const FunctionCallbackInfo<Value>& args) {
         ext->data(), ext->length(), buffer.out(), simdutf::base64_default);
   } else if (input->IsOneByte()) {
     MaybeStackBuffer<uint8_t> stack_buf(input->Length());
-    input->WriteOneByte(args.GetIsolate(),
-                        stack_buf.out(),
-                        0,
-                        input->Length(),
-                        String::NO_NULL_TERMINATION);
+    input->WriteOneByteV2(
+        args.GetIsolate(), 0, input->Length(), stack_buf.out());
     const char* data = reinterpret_cast<const char*>(*stack_buf);
     size_t expected_length =
         simdutf::maximal_binary_length_from_base64(data, input->Length());
